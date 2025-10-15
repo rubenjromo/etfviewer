@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import plotly.express as px
-import requests_cache # MODIFIED: To make requests more reliable
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -11,22 +10,16 @@ st.set_page_config(
     layout="wide"
 )
 
-# MODIFIED: Setup a session with a browser header to avoid being blocked
-session = requests_cache.CachedSession('yfinance.cache')
-session.headers['User-agent'] = 'my-yf-app/1.0'
-
-
 # --- Logic Functions ---
 
 @st.cache_data(ttl=3600)
 def get_etf_data(ticker_symbol):
     """Fetches key data for an ETF using yfinance."""
     try:
-        # MODIFIED: Use the session for the request
-        etf = yf.Ticker(ticker_symbol, session=session)
+        # MODIFIED: Removed the session argument to let yfinance handle connections
+        etf = yf.Ticker(ticker_symbol)
         info = etf.info
         
-        # MODIFIED: More robust check to see if we got valid data
         if not info or len(info) < 5: 
              st.error(f"Could not retrieve valid data for {ticker_symbol}. It might be delisted or an incorrect ticker.")
              return None
@@ -34,7 +27,7 @@ def get_etf_data(ticker_symbol):
         holdings = etf.holdings
         sector_weights = info.get('sectorWeightings', [])
         country_weights = info.get('countryWeightings', [])
-        expense_ratio = info.get('annualReportExpenseRatio') # Get can return None
+        expense_ratio = info.get('annualReportExpenseRatio')
         
         if holdings is None or holdings.empty or not sector_weights or not country_weights:
             st.error(f"Data for {ticker_symbol} is incomplete (missing holdings, sector, or country data).")
@@ -50,12 +43,10 @@ def get_etf_data(ticker_symbol):
             'countries': country_df,
             'expense_ratio': expense_ratio if expense_ratio is not None else 0
         }
-    # MODIFIED: Catch the specific exception and print it for better debugging
     except Exception as e:
         st.error(f"Could not fetch data for {ticker_symbol}. The specific error is: {e}")
         return None
 
-# The rest of the functions remain the same as they depend on the data fetching above
 def analyze_portfolio(portfolio_str):
     """Analyzes the consolidated portfolio from user input."""
     lines = [line.strip() for line in portfolio_str.strip().split('\n') if line.strip()]
@@ -122,6 +113,7 @@ st.markdown("Discover the true composition of your ETF portfolio. This tool show
 
 st.sidebar.header("Configure Your Portfolio")
 
+# MODIFIED: Using your username as requested
 bmac_link = "https://www.buymeacoffee.com/rubenjromo" 
 st.sidebar.markdown(f"""
 <a href="{bmac_link}" target="_blank">
