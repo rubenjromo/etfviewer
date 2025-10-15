@@ -16,7 +16,6 @@ st.set_page_config(
 def get_etf_data(ticker_symbol):
     """Fetches key data for an ETF using yfinance."""
     try:
-        # MODIFIED: Removed the session argument to let yfinance handle connections
         etf = yf.Ticker(ticker_symbol)
         info = etf.info
         
@@ -24,7 +23,9 @@ def get_etf_data(ticker_symbol):
              st.error(f"Could not retrieve valid data for {ticker_symbol}. It might be delisted or an incorrect ticker.")
              return None
 
-        holdings = etf.holdings
+        # MODIFIED: Switched from .holdings attribute to .get_holdings() method, as required by recent yfinance versions.
+        holdings = etf.get_holdings() 
+        
         sector_weights = info.get('sectorWeightings', [])
         country_weights = info.get('countryWeightings', [])
         expense_ratio = info.get('annualReportExpenseRatio')
@@ -34,6 +35,9 @@ def get_etf_data(ticker_symbol):
             return None
 
         holdings_df = holdings
+        # The holdings dataframe from .get_holdings() has different column names
+        holdings_df = holdings_df.rename(columns={'holdingPercent': '% Assets', 'holdingName': 'Holding'})
+        
         sector_df = pd.DataFrame([{'sector': s['longName'], 'weight': s['value']} for s in sector_weights])
         country_df = pd.DataFrame(country_weights)
         
@@ -113,7 +117,6 @@ st.markdown("Discover the true composition of your ETF portfolio. This tool show
 
 st.sidebar.header("Configure Your Portfolio")
 
-# MODIFIED: Using your username as requested
 bmac_link = "https://www.buymeacoffee.com/rubenjromo" 
 st.sidebar.markdown(f"""
 <a href="{bmac_link}" target="_blank">
