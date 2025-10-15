@@ -5,7 +5,7 @@ import yfinance as yf
 # --- Page Configuration ---
 st.set_page_config(
     page_title="ETF Comparator",
-    page_icon="🆚",
+    page_icon="🌟",
     layout="wide"
 )
 
@@ -22,15 +22,22 @@ def get_etf_metrics(ticker_symbol):
             st.warning(f"Could not get valid ETF data for {ticker_symbol}. It might be a stock or an invalid ticker.", icon="⚠️")
             return None
 
-        # Corrected Expense Ratio and removed Price-to-Book.
+        # NEW: Get the last dividend
+        last_dividend = 0
+        if not etf.dividends.empty:
+            last_dividend = etf.dividends.iloc[-1]
+
+        # MODIFIED: Added Price and Last Dividend to the metrics
         metrics = {
             'Ticker': info.get('symbol', ticker_symbol),
             'Name': info.get('shortName', 'N/A'),
+            'Price': info.get('regularMarketPrice'), # NEW: Get current price
             'Family': info.get('fundFamily', 'N/A'),
             'Category': info.get('category', 'N/A'),
-            'Expense Ratio %': info.get('netExpenseRatio') or 0, # Corrected: Value is already the percentage
+            'Expense Ratio %': info.get('netExpenseRatio') or 0,
             'Yield %': info.get('dividendYield') or 0,
             'YTD Return %': info.get('ytdReturn'),
+            'Last Dividend': last_dividend, # NEW: Get last dividend amount
             'Beta (3Y)': info.get('beta3Year'),
             'Total Assets': info.get('totalAssets'),
         }
@@ -41,7 +48,7 @@ def get_etf_metrics(ticker_symbol):
         return None
 
 # --- User Interface (UI) ---
-st.title("🆚 ETF Key Metrics Comparator")
+st.title("ETF Key Metrics Comparator")
 st.markdown("Enter the tickers of the ETFs you want to compare. The app will fetch their key metrics and display them in a comparison table.")
 
 st.sidebar.header("Enter ETFs to Compare")
@@ -77,12 +84,14 @@ if st.sidebar.button("Compare ETFs"):
             
             df = pd.DataFrame(all_metrics).set_index('Ticker')
 
-            # Removed Price-to-Book from the formatting block
+            # MODIFIED: Added formatting and color gradient for new columns
             st.dataframe(
                 df.style.format({
+                    'Price': '${:,.2f}',
                     'Expense Ratio %': '{:.2f}%',
                     'Yield %': '{:.2f}%',
                     'YTD Return %': '{:.2f}%',
+                    'Last Dividend': '${:,.4f}',
                     'Beta (3Y)': '{:.2f}',
                     'Total Assets': '{:,.0f}'
                 }).background_gradient(
@@ -90,7 +99,7 @@ if st.sidebar.button("Compare ETFs"):
                     subset=['Expense Ratio %']
                 ).background_gradient(
                     cmap='RdYlGn',
-                    subset=['Yield %', 'YTD Return %']
+                    subset=['Yield %', 'YTD Return %', 'Last Dividend']
                 ),
                 use_container_width=True
             )
