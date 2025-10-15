@@ -22,15 +22,15 @@ def get_etf_metrics(ticker_symbol):
             st.warning(f"Could not get valid ETF data for {ticker_symbol}. It might be a stock or an invalid ticker.", icon="⚠️")
             return None
 
-        # Extract only the data we know is available from the .info dictionary
+        # MODIFIED: Corrected the keys and removed incorrect multiplications for accurate data.
         metrics = {
             'Ticker': info.get('symbol', ticker_symbol),
             'Name': info.get('shortName', 'N/A'),
             'Family': info.get('fundFamily', 'N/A'),
             'Category': info.get('category', 'N/A'),
-            'Expense Ratio %': (info.get('annualReportExpenseRatio') or 0) * 100,
-            'Yield %': (info.get('yield') or 0) * 100,
-            'YTD Return %': (info.get('ytdReturn') or 0) * 100,
+            'Expense Ratio %': (info.get('netExpenseRatio') or 0) * 100, # Using the correct key
+            'Yield %': info.get('dividendYield') or 0,                  # Using the direct percentage value
+            'YTD Return %': info.get('ytdReturn'),                     # This value is already a percentage
             'Beta (3Y)': info.get('beta3Year'),
             'Price-to-Book': info.get('priceToBook'),
             'Total Assets': info.get('totalAssets'),
@@ -47,7 +47,6 @@ st.markdown("Enter the tickers of the ETFs you want to compare. The app will fet
 
 st.sidebar.header("Enter ETFs to Compare")
 
-# Using your username as requested
 bmac_link = "https://www.buymeacoffee.com/rubenjromo" 
 st.sidebar.markdown(f"""
 <a href="{bmac_link}" target="_blank">
@@ -62,7 +61,6 @@ etf_input = st.sidebar.text_area(
 )
 
 if st.sidebar.button("Compare ETFs"):
-    # Parse input string into a list of tickers
     tickers = [ticker.strip().upper() for ticker in etf_input.replace(',', ' ').split() if ticker.strip()]
     
     if tickers:
@@ -78,10 +76,8 @@ if st.sidebar.button("Compare ETFs"):
         if all_metrics:
             st.success("Comparison data fetched successfully!")
             
-            # Create and display the DataFrame
             df = pd.DataFrame(all_metrics).set_index('Ticker')
 
-            # Formatting the DataFrame for better readability
             st.dataframe(
                 df.style.format({
                     'Expense Ratio %': '{:.2f}%',
@@ -92,10 +88,10 @@ if st.sidebar.button("Compare ETFs"):
                     'Total Assets': '{:,.0f}'
                 }).background_gradient(
                     cmap='RdYlGn_r',
-                    subset=['Expense Ratio %'] # Lower is better
+                    subset=['Expense Ratio %']
                 ).background_gradient(
                     cmap='RdYlGn',
-                    subset=['Yield %', 'YTD Return %'] # Higher is better
+                    subset=['Yield %', 'YTD Return %']
                 ),
                 use_container_width=True
             )
