@@ -1,16 +1,3 @@
-import streamlit as st
-import pandas as pd
-import yfinance as yf
-
-# --- Page Configuration ---
-st.set_page_config(
-    page_title="ETF Comparator",
-    page_icon="🆚",
-    layout="wide"
-)
-
-# --- Logic Functions ---
-
 @st.cache_data(ttl=3600)
 def get_etf_metrics(ticker_symbol):
     """Fetches key comparable metrics from the .info dictionary of an ETF."""
@@ -22,17 +9,16 @@ def get_etf_metrics(ticker_symbol):
             st.warning(f"Could not get valid ETF data for {ticker_symbol}. It might be a stock or an invalid ticker.", icon="⚠️")
             return None
 
-        # MODIFIED: Corrected the keys and removed incorrect multiplications for accurate data.
+        # MODIFIED: Corrected Expense Ratio and removed Price-to-Book.
         metrics = {
             'Ticker': info.get('symbol', ticker_symbol),
             'Name': info.get('shortName', 'N/A'),
             'Family': info.get('fundFamily', 'N/A'),
             'Category': info.get('category', 'N/A'),
-            'Expense Ratio %': (info.get('netExpenseRatio') or 0) * 100, # Using the correct key
-            'Yield %': info.get('dividendYield') or 0,                  # Using the direct percentage value
-            'YTD Return %': info.get('ytdReturn'),                     # This value is already a percentage
+            'Expense Ratio %': info.get('netExpenseRatio'), # Corrected: Value is already the percentage
+            'Yield %': info.get('dividendYield') or 0,
+            'YTD Return %': info.get('ytdReturn'),
             'Beta (3Y)': info.get('beta3Year'),
-            'Price-to-Book': info.get('priceToBook'),
             'Total Assets': info.get('totalAssets'),
         }
         return metrics
@@ -40,63 +26,3 @@ def get_etf_metrics(ticker_symbol):
     except Exception as e:
         st.error(f"Failed to process {ticker_symbol}. Error: {e}", icon="🚨")
         return None
-
-# --- User Interface (UI) ---
-st.title("🆚 ETF Key Metrics Comparator")
-st.markdown("Enter the tickers of the ETFs you want to compare. The app will fetch their key metrics and display them in a comparison table.")
-
-st.sidebar.header("Enter ETFs to Compare")
-
-bmac_link = "https://www.buymeacoffee.com/rubenjromo" 
-st.sidebar.markdown(f"""
-<a href="{bmac_link}" target="_blank">
-    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 50px !important;width: 200px !important;" >
-</a>
-""", unsafe_allow_html=True)
-
-etf_input = st.sidebar.text_area(
-    "Enter ETF tickers separated by commas or spaces",
-    value="VOO, SCHD, QQQ, CGDG",
-    help="Example: VOO SCHD QQQ JEPI"
-)
-
-if st.sidebar.button("Compare ETFs"):
-    tickers = [ticker.strip().upper() for ticker in etf_input.replace(',', ' ').split() if ticker.strip()]
-    
-    if tickers:
-        with st.spinner("Fetching data for all ETFs..."):
-            all_metrics = []
-            progress_bar = st.progress(0)
-            for i, ticker in enumerate(tickers):
-                metrics = get_etf_metrics(ticker)
-                if metrics:
-                    all_metrics.append(metrics)
-                progress_bar.progress((i + 1) / len(tickers))
-
-        if all_metrics:
-            st.success("Comparison data fetched successfully!")
-            
-            df = pd.DataFrame(all_metrics).set_index('Ticker')
-
-            st.dataframe(
-                df.style.format({
-                    'Expense Ratio %': '{:.2f}%',
-                    'Yield %': '{:.2f}%',
-                    'YTD Return %': '{:.2f}%',
-                    'Beta (3Y)': '{:.2f}',
-                    'Price-to-Book': '{:.2f}',
-                    'Total Assets': '{:,.0f}'
-                }).background_gradient(
-                    cmap='RdYlGn_r',
-                    subset=['Expense Ratio %']
-                ).background_gradient(
-                    cmap='RdYlGn',
-                    subset=['Yield %', 'YTD Return %']
-                ),
-                use_container_width=True
-            )
-    else:
-        st.warning("Please enter at least one ETF ticker.")
-
-st.sidebar.markdown("---")
-st.sidebar.info("Created with ❤️ using Python and Streamlit.")
