@@ -14,17 +14,27 @@ st.set_page_config(
 
 @st.cache_data(ttl=3600)
 def get_etf_data(ticker_symbol):
-    """Fetches key data for an ETF using yfinance."""
+    """Fetches key data for an ETF using a more robust method."""
+    etf = None # Define etf outside the try block for the except block
     try:
         etf = yf.Ticker(ticker_symbol)
         info = etf.info
         
         if not info or len(info) < 5: 
-             st.error(f"Could not retrieve valid data for {ticker_symbol}. It might be delisted or an incorrect ticker.")
+             st.error(f"Could not retrieve valid info dictionary for {ticker_symbol}. It might be delisted or an incorrect ticker.")
              return None
 
-        # MODIFIED: Switched from .holdings attribute to .get_holdings() method, as required by recent yfinance versions.
-        holdings = etf.get_holdings() 
+        # MODIFIED: A robust way to find the holdings data, trying multiple known methods.
+        holdings = None
+        if hasattr(etf, 'get_holdings') and callable(getattr(etf, 'get_holdings')):
+            holdings = etf.get_holdings()
+        elif hasattr(etf, 'holdings'):
+            holdings = etf.holdings
+        
+        # Standardize column names since different methods return different names
+        if holdings is not None and not holdings.empty:
+            if 'holdingName' in holdings.columns and 'holdingPercent' in holdings.columns:
+                 holdings = holdings.rename(columns={'holdingName': 'Holding', 'holdingPercent': '% Assets'})
         
         sector_weights = info.get('sectorWeightings', [])
         country_weights = info.get('countryWeightings', [])
@@ -32,25 +42,29 @@ def get_etf_data(ticker_symbol):
         
         if holdings is None or holdings.empty or not sector_weights or not country_weights:
             st.error(f"Data for {ticker_symbol} is incomplete (missing holdings, sector, or country data).")
+            # If holdings failed, let's see what IS available
+            if holdings is None:
+                st.info(f"DEBUG INFO: The '.get_holdings()' and '.holdings' methods failed for {ticker_symbol}. Available functions are listed in the error below.")
             return None
 
-        holdings_df = holdings
-        # The holdings dataframe from .get_holdings() has different column names
-        holdings_df = holdings_df.rename(columns={'holdingPercent': '% Assets', 'holdingName': 'Holding'})
-        
         sector_df = pd.DataFrame([{'sector': s['longName'], 'weight': s['value']} for s in sector_weights])
         country_df = pd.DataFrame(country_weights)
         
         return {
-            'holdings': holdings_df,
+            'holdings': holdings,
             'sectors': sector_df,
             'countries': country_df,
             'expense_ratio': expense_ratio if expense_ratio is not None else 0
         }
     except Exception as e:
-        st.error(f"Could not fetch data for {ticker_symbol}. The specific error is: {e}")
+        # MODIFIED: Enhanced error message with a full object inspection (dir)
+        error_message = f"A critical error occurred for {ticker_symbol}. Specific error: {e}\n\n"
+        if etf is not None:
+            error_message += f"**Available attributes for the Ticker object are:**\n\n{dir(etf)}"
+        st.error(error_message, icon="🚨")
         return None
 
+# The rest of the code remains the same
 def analyze_portfolio(portfolio_str):
     """Analyzes the consolidated portfolio from user input."""
     lines = [line.strip() for line in portfolio_str.strip().split('\n') if line.strip()]
