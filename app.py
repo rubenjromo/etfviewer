@@ -1,15 +1,35 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
+from datetime import datetime, timedelta
 
 # --- Page Configuration ---
 st.set_page_config(
     page_title="ETF Comparator",
-    page_icon="🌟",
+    page_icon="🆚",
     layout="wide"
 )
 
 # --- Logic Functions ---
+
+def get_dividend_frequency(dividends):
+    """Analyzes the last 12 months of dividends to infer frequency."""
+    if dividends.empty:
+        return "N/A"
+    
+    twelve_months_ago = datetime.now() - timedelta(days=365)
+    recent_dividends = dividends[dividends.index > twelve_months_ago]
+    
+    count = len(recent_dividends)
+    
+    if count >= 10:
+        return "Monthly"
+    elif count >= 3:
+        return "Quarterly"
+    elif count >= 1:
+        return "Annual"
+    else:
+        return "Irregular"
 
 @st.cache_data(ttl=3600)
 def get_etf_metrics(ticker_symbol):
@@ -19,25 +39,24 @@ def get_etf_metrics(ticker_symbol):
         info = etf.info
         
         if not info or info.get('quoteType') != 'ETF':
-            st.warning(f"Could not get valid ETF data for {ticker_symbol}. It might be a stock or an invalid ticker.", icon="⚠️")
+            st.warning(f"Could not get valid ETF data for {ticker_symbol}.", icon="⚠️")
             return None
 
-        # NEW: Get the last dividend
-        last_dividend = 0
-        if not etf.dividends.empty:
-            last_dividend = etf.dividends.iloc[-1]
+        dividends = etf.dividends
+        last_dividend = dividends.iloc[-1] if not dividends.empty else 0
+        dividend_frequency = get_dividend_frequency(dividends)
 
-        # MODIFIED: Added Price and Last Dividend to the metrics
+        # Reordered and updated metrics as requested
         metrics = {
             'Ticker': info.get('symbol', ticker_symbol),
             'Name': info.get('shortName', 'N/A'),
-            'Price': info.get('regularMarketPrice'), # NEW: Get current price
-            'Family': info.get('fundFamily', 'N/A'),
             'Category': info.get('category', 'N/A'),
             'Expense Ratio %': info.get('netExpenseRatio') or 0,
             'Yield %': info.get('dividendYield') or 0,
             'YTD Return %': info.get('ytdReturn'),
-            'Last Dividend': last_dividend, # NEW: Get last dividend amount
+            'Last Dividend': last_dividend,
+            'Price': info.get('regularMarketPrice'),
+            'Dividend Frequency': dividend_frequency,
             'Beta (3Y)': info.get('beta3Year'),
             'Total Assets': info.get('totalAssets'),
         }
@@ -48,7 +67,7 @@ def get_etf_metrics(ticker_symbol):
         return None
 
 # --- User Interface (UI) ---
-st.title("ETF Key Metrics Comparator")
+st.title("🆚 ETF Key Metrics Comparator")
 st.markdown("Enter the tickers of the ETFs you want to compare. The app will fetch their key metrics and display them in a comparison table.")
 
 st.sidebar.header("Enter ETFs to Compare")
@@ -62,7 +81,7 @@ st.sidebar.markdown(f"""
 
 etf_input = st.sidebar.text_area(
     "Enter ETF tickers separated by commas or spaces",
-    value="VOO, SCHD, QQQ, CGDG",
+    value="VOO, SCHD, QQQ, JEPI",
     help="Example: VOO SCHD QQQ JEPI"
 )
 
@@ -84,7 +103,7 @@ if st.sidebar.button("Compare ETFs"):
             
             df = pd.DataFrame(all_metrics).set_index('Ticker')
 
-            # MODIFIED: Added formatting and color gradient for new columns
+            # Removed color gradients and updated formatting
             st.dataframe(
                 df.style.format({
                     'Price': '${:,.2f}',
@@ -94,13 +113,7 @@ if st.sidebar.button("Compare ETFs"):
                     'Last Dividend': '${:,.4f}',
                     'Beta (3Y)': '{:.2f}',
                     'Total Assets': '{:,.0f}'
-                }).background_gradient(
-                    cmap='RdYlGn_r',
-                    subset=['Expense Ratio %']
-                ).background_gradient(
-                    cmap='RdYlGn',
-                    subset=['Yield %', 'YTD Return %', 'Last Dividend']
-                ),
+                }),
                 use_container_width=True
             )
     else:
