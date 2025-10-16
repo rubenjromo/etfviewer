@@ -3,7 +3,7 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta, timezone
 import numpy as np
-from etfpy import get_holdings # NEW: Importing the new library
+import pyetf as etf # NEW: Importing the new, correct library
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -46,16 +46,16 @@ def get_dividend_frequency(dividends):
 def get_etf_metrics(ticker_symbol):
     """Fetches key comparable metrics for an ETF."""
     try:
-        etf = yf.Ticker(ticker_symbol)
-        info = etf.info
+        etf_yf = yf.Ticker(ticker_symbol)
+        info = etf_yf.info
         if not info or info.get('quoteType') != 'ETF':
             st.warning(f"Could not get valid ETF data for {ticker_symbol}.", icon="⚠️")
             return None
 
-        dividends = etf.dividends
+        dividends = etf_yf.dividends
         last_dividend = dividends.iloc[-1] if not dividends.empty else 0
         dividend_frequency = get_dividend_frequency(dividends)
-        cagr_5y = get_cagr(etf, years=5)
+        cagr_5y = get_cagr(etf_yf, years=5)
 
         metrics = {
             'Ticker': info.get('symbol', ticker_symbol),
@@ -74,19 +74,18 @@ def get_etf_metrics(ticker_symbol):
     except Exception:
         return None
 
-# CORRECTED: Using the etfpy library for a reliable holdings source
+# CORRECTED: Using the pyetf library for a reliable holdings source
 @st.cache_data(ttl=3600)
-def get_etf_holdings_from_etfpy(ticker_symbol):
-    """Gets top holdings for an ETF using the etfpy library."""
+def get_etf_holdings_from_pyetf(ticker_symbol):
+    """Gets top holdings for an ETF using the pyetf library."""
     try:
-        holdings_df, _ = get_holdings(ticker_symbol) # The function returns two dataframes
+        holdings_df = etf.holdings(ticker_symbol)
         if holdings_df is not None and not holdings_df.empty:
-            # The library returns columns like 'Holding', 'Weight (%)'. We'll keep them.
             return holdings_df
         else:
             return None
     except Exception as e:
-        st.error(f"Could not retrieve holdings for {ticker_symbol} using etfpy. Error: {e}")
+        st.error(f"Could not retrieve holdings for {ticker_symbol} using pyetf. Error: {e}")
         return None
 
 # --- User Interface (UI) ---
@@ -124,7 +123,7 @@ if st.button("Get Holdings"):
     if holdings_input:
         ticker_str = holdings_input.strip().upper()
         with st.spinner(f"Fetching holdings for {ticker_str}..."):
-            holdings_df = get_etf_holdings_from_etfpy(ticker_str)
+            holdings_df = get_etf_holdings_from_pyetf(ticker_str)
             
             if holdings_df is not None:
                 st.success(f"Top holdings for {ticker_str}:")
