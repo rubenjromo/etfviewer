@@ -110,25 +110,28 @@ if st.button("Get Holdings"):
         ticker_str = holdings_input.strip().upper()
         with st.spinner(f"Fetching holdings for {ticker_str}..."):
             try:
-                # CORRECTED: Using ETF.com as a reliable data source for holdings
-                url = f"https://etf.com/{ticker_str}"
-                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
+                # CORRECTED: Using etfdb.com, a more reliable source for holdings, with a proper User-Agent.
+                url = f"https://etfdb.com/etf/{ticker_str}/"
+                headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'}
                 response = requests.get(url, headers=headers)
-                response.raise_for_status() 
+                response.raise_for_status()
                 
-                # Read all tables on the page and find the one with holdings
                 tables = pd.read_html(response.text)
+                
+                # Find the holdings table by looking for specific columns
                 holdings_df = None
                 for table in tables:
-                    if 'Holding' in table.columns and '% Assets' in table.columns:
+                    if 'Symbol' in table.columns and '% of Assets' in table.columns:
                         holdings_df = table
                         break
                 
                 if holdings_df is not None:
                     st.success(f"Top holdings for {ticker_str}:")
-                    st.dataframe(holdings_df[['Holding', '% Assets']], use_container_width=True)
+                    # Clean up and rename columns for display
+                    holdings_df = holdings_df[['Symbol', 'Holding Name', '% of Assets']].rename(columns={'Holding Name': 'Company', '% of Assets': 'Weight'})
+                    st.dataframe(holdings_df, use_container_width=True)
                 else:
-                    st.error(f"Could not find a holdings table for {ticker_str} on ETF.com.")
+                    st.error(f"Could not find a holdings table for {ticker_str} on etfdb.com.")
 
             except Exception as e:
                 st.error(f"Could not retrieve holdings for {ticker_str}. It may not be supported or the website structure changed. Error: {e}")
