@@ -3,6 +3,7 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta, timezone
 import numpy as np
+from etfpy import get_holdings # NEW: Importing the new library
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -73,22 +74,19 @@ def get_etf_metrics(ticker_symbol):
     except Exception:
         return None
 
+# CORRECTED: Using the etfpy library for a reliable holdings source
 @st.cache_data(ttl=3600)
-def get_etf_holdings(ticker_symbol):
-    """Gets top holdings for an ETF using the yfinance library's holdings attribute."""
+def get_etf_holdings_from_etfpy(ticker_symbol):
+    """Gets top holdings for an ETF using the etfpy library."""
     try:
-        etf = yf.Ticker(ticker_symbol)
-        # This is the line that is likely failing silently.
-        holdings_df = etf.holdings
+        holdings_df, _ = get_holdings(ticker_symbol) # The function returns two dataframes
         if holdings_df is not None and not holdings_df.empty:
-            holdings_df = holdings_df.rename(columns={'Holding Name': 'Company', 'Holding Percent': '% Assets'})
+            # The library returns columns like 'Holding', 'Weight (%)'. We'll keep them.
             return holdings_df
         else:
-            # If it returns None or empty, we'll raise an error to be caught below.
-            raise ValueError("yfinance returned no holdings data.")
+            return None
     except Exception as e:
-        # CORRECTED: This will now display the REAL error message.
-        st.error(f"A technical error occurred while fetching holdings for {ticker_symbol}: {e}")
+        st.error(f"Could not retrieve holdings for {ticker_symbol} using etfpy. Error: {e}")
         return None
 
 # --- User Interface (UI) ---
@@ -119,19 +117,19 @@ if st.button("Compare ETFs"):
             )
 
 st.header("📊 ETF Holdings Viewer")
-st.markdown("Enter a single ETF ticker to view its top holdings. This data comes directly from the yfinance library.")
+st.markdown("Enter a single ETF ticker to view its top holdings.")
 holdings_input = st.text_input("Enter a single ETF ticker for holdings analysis", value="SCHD")
 
 if st.button("Get Holdings"):
     if holdings_input:
         ticker_str = holdings_input.strip().upper()
         with st.spinner(f"Fetching holdings for {ticker_str}..."):
-            holdings_df = get_etf_holdings(ticker_str)
+            holdings_df = get_etf_holdings_from_etfpy(ticker_str)
             
             if holdings_df is not None:
                 st.success(f"Top holdings for {ticker_str}:")
-                st.dataframe(holdings_df[['Company', 'Symbol', '% Assets']], use_container_width=True)
-            # The function now handles its own error messages, so no 'else' is needed here.
+                st.dataframe(holdings_df, use_container_width=True)
+            # The function now handles its own error messages
 
 # --- Sidebar ---
 st.sidebar.header("About")
