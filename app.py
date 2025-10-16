@@ -49,6 +49,9 @@ def get_etf_metrics(ticker_symbol):
         etf_yf = yf.Ticker(ticker_symbol)
         info = etf_yf.info
         if not info or info.get('quoteType') != 'ETF':
+            # Allow non-ETF tickers like BTC-USD
+            if '-' in ticker_symbol:
+                 return {'Ticker': ticker_symbol, 'Name': ticker_symbol}
             st.warning(f"Could not get valid ETF data for {ticker_symbol}.", icon="⚠️")
             return None
 
@@ -77,20 +80,23 @@ def get_etf_metrics(ticker_symbol):
 def get_historical_prices(tickers):
     """Fetches 5-year historical closing prices for a list of tickers."""
     try:
+        # yfinance can handle single or multiple tickers
         data = yf.download(tickers, period="5y", auto_adjust=True)['Close']
+        if isinstance(data, pd.Series): # If only one ticker, convert to DataFrame
+            data = data.to_frame(tickers[0])
         return data.round(2)
     except Exception:
         return None
 
 # --- User Interface (UI) ---
-st.title("🛠️ ETF Analysis & Portfolio Tool")
+st.title("🛠️ ETF & Asset Analysis Tool")
 st.header("💵 Portfolio Dividend Calculator")
 
 col1, col2 = st.columns(2)
 with col1:
     portfolio_input = st.text_area(
-        "**1. Enter your ETFs and weights** (one per line)",
-        value="VOO 50\nSCHD 30\nQQQ 20",
+        "**1. Enter your assets and weights** (one per line)",
+        value="VOO 40\nSCHD 20\nQQQ 20\nBTC-USD 20",
         height=150, help="Use the format 'TICKER WEIGHT'. The sum of weights should be 100."
     )
 with col2:
@@ -152,27 +158,36 @@ if st.button("Calculate & Analyze Portfolio"):
             price_history = get_historical_prices(list(portfolio.keys()))
             
             st.markdown("---")
-            st.subheader("5-Year Historical Performance")
+            st.subheader("Historical Performance")
             
-            # CORRECTED: Using two columns for the chart and the new growth table
-            chart_col, table_col = st.columns([2, 1]) # Give more space to the chart
+            chart_col, table_col = st.columns([2, 1])
 
             with chart_col:
                 if price_history is not None and not price_history.empty:
                     st.line_chart(price_history)
                 else:
-                    st.warning("Could not retrieve historical price data for the selected ETFs.")
+                    st.warning("Could not retrieve historical price data.")
             
             with table_col:
                 if price_history is not None and not price_history.empty:
-                    st.markdown("**Total Growth (5-Year Period)**")
-                    # Calculate total growth percentage for each ETF
-                    total_growth = (price_history.iloc[-1] / price_history.iloc[0] - 1) * 100
+                    st.markdown("**Total Growth Over Period**")
+                    
+                    # CORRECTED: Calculate growth for each asset based on its own available history
+                    growth_data = {}
+                    for ticker in price_history.columns:
+                        # Find the first valid price for the ticker
+                        first_valid_index = price_history[ticker].first_valid_index()
+                        if first_valid_index is not None:
+                            start_price = price_history[ticker].loc[first_valid_index]
+                            end_price = price_history[ticker].iloc[-1]
+                            if pd.notna(start_price) and pd.notna(end_price) and start_price != 0:
+                                growth_data[ticker] = (end_price / start_price - 1) * 100
+                    
+                    growth_df = pd.Series(growth_data, name="Growth %").to_frame()
                     st.dataframe(
-                        total_growth.rename("Growth %").to_frame(),
+                        growth_df,
                         column_config={"Growth %": st.column_config.NumberColumn(format="%.2f%%")}
                     )
-
 
             st.markdown("---")
             st.subheader("Portfolio Summary")
@@ -198,7 +213,7 @@ if st.button("Calculate & Analyze Portfolio"):
 
             st.markdown("---")
             st.subheader("Asset Correlation Heatmap")
-            st.info("This shows how similarly your ETFs move. A value near **1.0** means they move together (low diversification). A value near **0** means their movements are unrelated (high diversification).", icon="💡")
+            st.info("This shows how similarly your assets move. A value near **1.0** means they move together (low diversification). A value near **0** means their movements are unrelated (high diversification).", icon="💡")
 
             if price_history is not None and len(price_history.columns) > 1:
                 corr = price_history.pct_change().corr()
