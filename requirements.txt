@@ -6,3 +6,4 @@ requests-cache
 matplotlib
 numpy
 lxml
+requests
