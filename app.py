@@ -4,6 +4,7 @@ import yfinance as yf
 from datetime import datetime, timedelta, timezone
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -73,13 +74,12 @@ def get_etf_metrics(ticker_symbol):
     except Exception:
         return None
 
-# NEW: Function to get historical price data
 @st.cache_data(ttl=3600)
 def get_historical_prices(tickers):
     """Fetches 5-year historical closing prices for a list of tickers."""
     try:
         data = yf.download(tickers, period="5y", auto_adjust=True)['Close']
-        return data
+        return data.round(2) # CORRECTED: Round to 2 decimal places
     except Exception:
         return None
 
@@ -150,16 +150,14 @@ if st.button("Calculate & Analyze Portfolio"):
                 use_container_width=True
             )
             
-            # --- NEW: Historical Price Chart Section ---
+            price_history = get_historical_prices(list(portfolio.keys()))
+            
             st.markdown("---")
             st.subheader("5-Year Historical Price Performance")
-            
-            price_history = get_historical_prices(list(portfolio.keys()))
             if price_history is not None and not price_history.empty:
                 st.line_chart(price_history)
             else:
                 st.warning("Could not retrieve historical price data for the selected ETFs.")
-
 
             st.markdown("---")
             st.subheader("Portfolio Summary")
@@ -175,20 +173,33 @@ if st.button("Calculate & Analyze Portfolio"):
             
             st.markdown("---")
             st.subheader("Annual Dividend Income Contribution")
-            
             df_comp['Income Contribution ($)'] = (df_comp['Yield %'] / 100) * (df_comp['Portfolio Weight %'] / 100) * portfolio_value
-            
-            fig = px.pie(
+            fig_pie = px.pie(
                 df_comp, values='Income Contribution ($)', names=df_comp.index,
                 title='Annual Dividend Projection by ETF', hole=.3
             )
-            fig.update_traces(texttemplate='%{label}: %{percent:.1%} <br>($%{value:,.2f})', textposition='inside')
-            st.plotly_chart(fig, use_container_width=True)
+            fig_pie.update_traces(texttemplate='%{label}: %{percent:.1%} <br>($%{value:,.2f})', textposition='inside')
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+            # --- NEW: Correlation Matrix Section ---
+            st.markdown("---")
+            st.subheader("Asset Correlation Heatmap")
+            st.info("This shows how similarly your ETFs move. A value near **1.0** means they move together (low diversification). A value near **0** means their movements are unrelated (high diversification).", icon="💡")
+
+            if price_history is not None and len(price_history.columns) > 1:
+                corr = price_history.pct_change().corr()
+                fig_corr = px.imshow(
+                    corr,
+                    text_auto=True,
+                    aspect="auto",
+                    color_continuous_scale='RdYlGn',
+                    range_color=[-1,1],
+                    title="Correlation of Daily Price Movements"
+                )
+                st.plotly_chart(fig_corr, use_container_width=True)
 
             st.info("""
-                **Disclaimer:** This tool is for informational purposes only and does not constitute financial advice. 
-                All calculations are based on publicly available data which may not be 100% accurate. 
-                Always do your own research before making any investment decisions.
+                **Disclaimer:** This tool is for informational purposes only and does not constitute financial advice. All calculations are based on publicly available data which may not be 100% accurate. Always do your own research before making any investment decisions.
             """, icon="⚠️")
 
 # --- Sidebar ---
