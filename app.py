@@ -110,15 +110,14 @@ if st.button("Get Holdings"):
         ticker_str = holdings_input.strip().upper()
         with st.spinner(f"Fetching holdings for {ticker_str}..."):
             try:
-                # CORRECTED: Using Yahoo Finance as the most reliable source for holdings.
-                url = f"https://finance.yahoo.com/quote/{ticker_str}/holdings"
+                # CORRECTED: Using the correct Yahoo Finance URL structure with the '?p=' parameter.
+                url = f"https://finance.yahoo.com/quote/{ticker_str}/holdings?p={ticker_str}"
                 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
                 response = requests.get(url, headers=headers)
                 response.raise_for_status()
                 
                 tables = pd.read_html(response.text)
                 
-                # Yahoo Finance usually has the holdings in the first table
                 if tables:
                     holdings_df = tables[0]
                     st.success(f"Top holdings for {ticker_str}:")
