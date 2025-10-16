@@ -73,6 +73,16 @@ def get_etf_metrics(ticker_symbol):
     except Exception:
         return None
 
+# NEW: Function to get historical price data
+@st.cache_data(ttl=3600)
+def get_historical_prices(tickers):
+    """Fetches 5-year historical closing prices for a list of tickers."""
+    try:
+        data = yf.download(tickers, period="5y", auto_adjust=True)['Close']
+        return data
+    except Exception:
+        return None
+
 # --- User Interface (UI) ---
 st.title("🛠️ ETF Analysis & Portfolio Tool")
 st.header("💵 Portfolio Dividend Calculator")
@@ -112,16 +122,15 @@ if st.button("Calculate & Analyze Portfolio"):
         with st.spinner("Fetching data and calculating..."):
             all_metrics = []
             weighted_yield_sum = 0
-            weighted_expense_ratio_sum = 0 # NEW: Initialize expense ratio sum
+            weighted_expense_ratio_sum = 0
             
             for ticker, weight in portfolio.items():
                 metrics = get_etf_metrics(ticker)
                 if metrics:
                     metrics['Portfolio Weight %'] = weight
                     all_metrics.append(metrics)
-                    # Add to weighted sums
                     weighted_yield_sum += (metrics.get('Yield %', 0) or 0) * (weight / 100.0)
-                    weighted_expense_ratio_sum += (metrics.get('Expense Ratio %', 0) or 0) * (weight / 100.0) # NEW
+                    weighted_expense_ratio_sum += (metrics.get('Expense Ratio %', 0) or 0) * (weight / 100.0)
         
         if all_metrics:
             st.success("Analysis complete!")
@@ -140,19 +149,29 @@ if st.button("Calculate & Analyze Portfolio"):
                 }, na_rep="N/A"),
                 use_container_width=True
             )
+            
+            # --- NEW: Historical Price Chart Section ---
+            st.markdown("---")
+            st.subheader("5-Year Historical Price Performance")
+            
+            price_history = get_historical_prices(list(portfolio.keys()))
+            if price_history is not None and not price_history.empty:
+                st.line_chart(price_history)
+            else:
+                st.warning("Could not retrieve historical price data for the selected ETFs.")
+
 
             st.markdown("---")
             st.subheader("Portfolio Summary")
             annual_income = portfolio_value * (weighted_yield_sum / 100.0)
             
-            # CORRECTED: Using 3 columns for a balanced layout
             col_metric1, col_metric2, col_metric3 = st.columns(3)
             with col_metric1:
                 st.metric(label="**Weighted Average Dividend Yield**", value=f"{weighted_yield_sum:.2f}%")
             with col_metric2:
                 st.metric(label="**Estimated Annual Dividend Income**", value=f"${annual_income:,.2f}")
             with col_metric3:
-                st.metric(label="**Weighted Average Expense Ratio**", value=f"{weighted_expense_ratio_sum:.2f}%") # NEW
+                st.metric(label="**Weighted Average Expense Ratio**", value=f"{weighted_expense_ratio_sum:.2f}%")
             
             st.markdown("---")
             st.subheader("Annual Dividend Income Contribution")
@@ -174,7 +193,7 @@ if st.button("Calculate & Analyze Portfolio"):
 
 # --- Sidebar ---
 st.sidebar.header("About")
-st.sidebar.info("This app provides a portfolio dividend and expense ratio calculator based on user-defined weights and total value.") # Updated sidebar text
+st.sidebar.info("This app provides a portfolio dividend and expense ratio calculator based on user-defined weights and total value.")
 bmac_link = "https://www.buymeacoffee.com/rubenjromo" 
 st.sidebar.markdown(f"""<a href="{bmac_link}" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 50px !important;width: 200px !important;" ></a>""", unsafe_allow_html=True)
 st.sidebar.markdown("---")
