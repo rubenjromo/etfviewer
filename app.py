@@ -79,9 +79,18 @@ def get_historical_prices(tickers):
     """Fetches 5-year historical closing prices for a list of tickers."""
     try:
         data = yf.download(tickers, period="5y", auto_adjust=True)['Close']
-        return data.round(2) # CORRECTED: Round to 2 decimal places
+        return data
     except Exception:
         return None
+
+# NEW: Function to calculate normalized growth
+def get_normalized_growth(price_history):
+    """Converts a price history DataFrame to a normalized growth DataFrame starting at 0%."""
+    if price_history is None or price_history.empty:
+        return None
+    # Normalize by dividing all prices by the first price, then convert to percentage
+    normalized = (price_history / price_history.iloc[0] - 1) * 100
+    return normalized.round(2)
 
 # --- User Interface (UI) ---
 st.title("🛠️ ETF Analysis & Portfolio Tool")
@@ -152,10 +161,12 @@ if st.button("Calculate & Analyze Portfolio"):
             
             price_history = get_historical_prices(list(portfolio.keys()))
             
+            # CORRECTED: Using a new function for normalized growth chart
             st.markdown("---")
-            st.subheader("5-Year Historical Price Performance")
-            if price_history is not None and not price_history.empty:
-                st.line_chart(price_history)
+            st.subheader("5-Year Cumulative Performance (%)")
+            growth_history = get_normalized_growth(price_history)
+            if growth_history is not None and not growth_history.empty:
+                st.line_chart(growth_history)
             else:
                 st.warning("Could not retrieve historical price data for the selected ETFs.")
 
@@ -181,7 +192,6 @@ if st.button("Calculate & Analyze Portfolio"):
             fig_pie.update_traces(texttemplate='%{label}: %{percent:.1%} <br>($%{value:,.2f})', textposition='inside')
             st.plotly_chart(fig_pie, use_container_width=True)
 
-            # --- NEW: Correlation Matrix Section ---
             st.markdown("---")
             st.subheader("Asset Correlation Heatmap")
             st.info("This shows how similarly your ETFs move. A value near **1.0** means they move together (low diversification). A value near **0** means their movements are unrelated (high diversification).", icon="💡")
@@ -189,11 +199,8 @@ if st.button("Calculate & Analyze Portfolio"):
             if price_history is not None and len(price_history.columns) > 1:
                 corr = price_history.pct_change().corr()
                 fig_corr = px.imshow(
-                    corr,
-                    text_auto=True,
-                    aspect="auto",
-                    color_continuous_scale='RdYlGn',
-                    range_color=[-1,1],
+                    corr, text_auto=True, aspect="auto",
+                    color_continuous_scale='RdYlGn', range_color=[-1,1],
                     title="Correlation of Daily Price Movements"
                 )
                 st.plotly_chart(fig_corr, use_container_width=True)
