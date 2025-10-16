@@ -3,7 +3,7 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta, timezone
 import numpy as np
-import requests # NEW: Import requests library for robust web scraping
+import requests
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -57,7 +57,6 @@ def get_etf_metrics(ticker_symbol):
         dividend_frequency = get_dividend_frequency(dividends)
         cagr_5y = get_cagr(etf, years=5)
 
-        # CORRECTED: Using the accurate keys for expense ratio and yield
         metrics = {
             'Ticker': info.get('symbol', ticker_symbol),
             'Name': info.get('shortName', 'N/A'),
@@ -103,7 +102,7 @@ if st.button("Compare ETFs"):
             )
 
 st.header("📊 ETF Holdings Viewer")
-st.markdown("Enter a single ETF ticker to view its top 15 holdings. This uses an external data source and may take a moment.")
+st.markdown("Enter a single ETF ticker to view its top holdings. This uses an external data source and may take a moment.")
 holdings_input = st.text_input("Enter a single ETF ticker for holdings analysis", value="SCHD")
 
 if st.button("Get Holdings"):
@@ -111,21 +110,33 @@ if st.button("Get Holdings"):
         ticker_str = holdings_input.strip().upper()
         with st.spinner(f"Fetching holdings for {ticker_str}..."):
             try:
-                # CORRECTED: Using requests library to bypass 403 Forbidden error
-                url = f"https://www.slickcharts.com/etf/{ticker_str}"
+                # CORRECTED: Using ETF.com as a reliable data source for holdings
+                url = f"https://etf.com/{ticker_str}"
                 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
                 response = requests.get(url, headers=headers)
-                response.raise_for_status() # Raises an exception for bad status codes
+                response.raise_for_status() 
                 
-                df_holdings = pd.read_html(response.text, attrs={'class': 'table table-hover table-borderless table-sm'})[0]
-                st.success(f"Top holdings for {ticker_str}:")
-                st.dataframe(df_holdings[['Company', 'Symbol', 'Weight']], use_container_width=True)
+                # Read all tables on the page and find the one with holdings
+                tables = pd.read_html(response.text)
+                holdings_df = None
+                for table in tables:
+                    if 'Holding' in table.columns and '% Assets' in table.columns:
+                        holdings_df = table
+                        break
+                
+                if holdings_df is not None:
+                    st.success(f"Top holdings for {ticker_str}:")
+                    st.dataframe(holdings_df[['Holding', '% Assets']], use_container_width=True)
+                else:
+                    st.error(f"Could not find a holdings table for {ticker_str} on ETF.com.")
+
             except Exception as e:
                 st.error(f"Could not retrieve holdings for {ticker_str}. It may not be supported or the website structure changed. Error: {e}")
 
+# --- Sidebar ---
 st.sidebar.header("About")
 st.sidebar.info("This app provides tools for ETF analysis, including metric comparison and holdings data.")
-bmac_link = "https://www.buymeacofee.com/rubenjromo" 
+bmac_link = "https://www.buymeacoffee.com/rubenjromo" 
 st.sidebar.markdown(f"""<a href="{bmac_link}" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 50px !important;width: 200px !important;" ></a>""", unsafe_allow_html=True)
 st.sidebar.markdown("---")
 st.sidebar.info("Created with ❤️ using Python and Streamlit.")
