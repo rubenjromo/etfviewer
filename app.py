@@ -75,42 +75,46 @@ def get_etf_metrics(ticker_symbol):
 
 # --- User Interface (UI) ---
 st.title("🛠️ ETF Analysis & Portfolio Tool")
-st.header("💵 Portfolio Yield Calculator")
-st.markdown("Enter your ETFs and their portfolio weight (%) to calculate your weighted average dividend yield.")
+st.header("💵 Portfolio Dividend Calculator")
 
-# NEW: Input area for portfolio weights
-portfolio_input = st.text_area(
-    "Enter each ETF on a new line followed by its weight. (e.g., VOO 50)",
-    value="VOO 50\nSCHD 30\nQQQ 20",
-    height=150
-)
+# --- Input Section ---
+col1, col2 = st.columns(2)
+with col1:
+    portfolio_input = st.text_area(
+        "**1. Enter your ETFs and weights** (one per line)",
+        value="VOO 50\nSCHD 30\nQQQ 20",
+        height=150,
+        help="Use the format 'TICKER WEIGHT'. The sum of weights should be 100."
+    )
+with col2:
+    portfolio_value = st.number_input(
+        "**2. Enter total portfolio value ($)**",
+        min_value=0.0,
+        value=10000.0,
+        step=1000.0,
+        format="%f"
+    )
 
-if st.button("Calculate & Compare ETFs"):
+if st.button("Calculate & Analyze Portfolio"):
     lines = [line.strip() for line in portfolio_input.strip().split('\n') if line.strip()]
     portfolio = {}
     total_weight = 0
-    
-    # --- 1. Parse Input ---
     valid_input = True
+
     for line in lines:
         parts = line.split()
         if len(parts) != 2:
-            st.error(f"Error in line: '{line}'. Please use the format 'TICKER WEIGHT'.")
-            valid_input = False
-            break
+            st.error(f"Error en la línea: '{line}'. Usa el formato 'TICKER PESO'."); valid_input = False; break
         try:
             ticker, weight = parts[0].upper(), float(parts[1])
             portfolio[ticker] = weight
             total_weight += weight
         except ValueError:
-            st.error(f"Invalid weight in line: '{line}'. Please use a number for the weight.")
-            valid_input = False
-            break
+            st.error(f"Peso inválido en la línea: '{line}'. Usa un número."); valid_input = False; break
+    
+    if abs(total_weight - 100.0) > 0.1 and valid_input:
+        st.warning(f"La suma de los pesos es {total_weight}%. Se recomienda que sea 100%.", icon="⚠️")
 
-    if total_weight != 100 and valid_input:
-        st.warning(f"The sum of weights is {total_weight}%, not 100%. The calculation will be adjusted accordingly.", icon="⚠️")
-
-    # --- 2. Fetch Data & Calculate ---
     if valid_input and portfolio:
         with st.spinner("Fetching data and calculating..."):
             all_metrics = []
@@ -121,45 +125,56 @@ if st.button("Calculate & Compare ETFs"):
                 if metrics:
                     metrics['Portfolio Weight %'] = weight
                     all_metrics.append(metrics)
-                    # Add to the weighted yield sum
                     weighted_yield_sum += (metrics.get('Yield %', 0) or 0) * (weight / 100.0)
-
-        # --- 3. Display Results ---
+        
         if all_metrics:
             st.success("Analysis complete!")
             
-            # Display the main result: Weighted Average Yield
-            st.metric(
-                label="**Portfolio's Weighted Average Dividend Yield**",
-                value=f"{weighted_yield_sum:.2f}%"
-            )
+            # --- Results Section ---
+            st.subheader("Portfolio Summary")
             
-            # Display the detailed comparison table
+            # Calculate annual income
+            annual_income = portfolio_value * (weighted_yield_sum / 100.0)
+            
+            # Display metrics below the table
+            col_metric1, col_metric2 = st.columns(2)
+            with col_metric1:
+                st.metric(label="**Weighted Average Dividend Yield**", value=f"{weighted_yield_sum:.2f}%")
+            with col_metric2:
+                st.metric(label="**Estimated Annual Dividend Income**", value=f"${annual_income:,.2f}")
+            
+            # --- Detailed Table ---
             st.markdown("---")
             st.subheader("Detailed Metrics Comparison")
             df_comp = pd.DataFrame(all_metrics).set_index('Ticker')
-            
-            # Reorder columns to show weight first
             cols = ['Portfolio Weight %'] + [col for col in df_comp.columns if col != 'Portfolio Weight %']
             df_comp = df_comp[cols]
 
             st.dataframe(
                 df_comp.style.format({
-                    'Portfolio Weight %': '{:.1f}%',
-                    'Expense Ratio %': '{:.2f}%',
-                    'Yield %': '{:.2f}%',
-                    'YTD Return %': '{:.2f}%',
-                    '5Y CAGR %': '{:.2f}%',
-                    'Last Dividend': '${:,.4f}',
-                    'Price': '${:,.2f}',
-                    'Total Assets': '${:,.0f}'
+                    'Portfolio Weight %': '{:.1f}%', 'Expense Ratio %': '{:.2f}%',
+                    'Yield %': '{:.2f}%', 'YTD Return %': '{:.2f}%', '5Y CAGR %': '{:.2f}%',
+                    'Last Dividend': '${:,.4f}', 'Price': '${:,.2f}', 'Total Assets': '${:,.0f}'
                 }, na_rep="N/A"),
                 use_container_width=True
             )
 
+            # --- Chart Section ---
+            st.markdown("---")
+            st.subheader("Dividend Income Contribution per ETF")
+            
+            df_comp['Income Contribution ($)'] = (df_comp['Yield %'] / 100) * (df_comp['Portfolio Weight %'] / 100) * portfolio_value
+            st.bar_chart(df_comp, y='Income Contribution ($)')
+            
+            st.info("""
+                **Disclaimer:** This tool is for informational purposes only and does not constitute financial advice. 
+                All calculations are based on publicly available data which may not be 100% accurate. 
+                Always do your own research before making any investment decisions.
+            """, icon="⚠️")
+
 # --- Sidebar ---
 st.sidebar.header("About")
-st.sidebar.info("This app provides tools for ETF analysis. The main feature is a portfolio yield calculator based on user-defined weights.")
+st.sidebar.info("This app provides tools for ETF analysis. The main feature is a portfolio dividend calculator based on user-defined weights and total value.")
 bmac_link = "https://www.buymeacoffee.com/rubenjromo" 
 st.sidebar.markdown(f"""<a href="{bmac_link}" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 50px !important;width: 200px !important;" ></a>""", unsafe_allow_html=True)
 st.sidebar.markdown("---")
