@@ -3,6 +3,7 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta, timezone
 import numpy as np
+import plotly.express as px # NEW: Import Plotly for pie charts
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -77,22 +78,17 @@ def get_etf_metrics(ticker_symbol):
 st.title("🛠️ ETF Analysis & Portfolio Tool")
 st.header("💵 Portfolio Dividend Calculator")
 
-# --- Input Section ---
 col1, col2 = st.columns(2)
 with col1:
     portfolio_input = st.text_area(
         "**1. Enter your ETFs and weights** (one per line)",
         value="VOO 50\nSCHD 30\nQQQ 20",
-        height=150,
-        help="Use the format 'TICKER WEIGHT'. The sum of weights should be 100."
+        height=150, help="Use the format 'TICKER WEIGHT'. The sum of weights should be 100."
     )
 with col2:
     portfolio_value = st.number_input(
         "**2. Enter total portfolio value ($)**",
-        min_value=0.0,
-        value=10000.0,
-        step=1000.0,
-        format="%f"
+        min_value=0.0, value=10000.0, step=1000.0, format="%f"
     )
 
 if st.button("Calculate & Analyze Portfolio"):
@@ -103,14 +99,12 @@ if st.button("Calculate & Analyze Portfolio"):
 
     for line in lines:
         parts = line.split()
-        if len(parts) != 2:
-            st.error(f"Error en la línea: '{line}'. Usa el formato 'TICKER PESO'."); valid_input = False; break
+        if len(parts) != 2: st.error(f"Error en la línea: '{line}'. Usa el formato 'TICKER PESO'."); valid_input = False; break
         try:
             ticker, weight = parts[0].upper(), float(parts[1])
             portfolio[ticker] = weight
             total_weight += weight
-        except ValueError:
-            st.error(f"Peso inválido en la línea: '{line}'. Usa un número."); valid_input = False; break
+        except ValueError: st.error(f"Peso inválido en la línea: '{line}'. Usa un número."); valid_input = False; break
     
     if abs(total_weight - 100.0) > 0.1 and valid_input:
         st.warning(f"La suma de los pesos es {total_weight}%. Se recomienda que sea 100%.", icon="⚠️")
@@ -130,26 +124,14 @@ if st.button("Calculate & Analyze Portfolio"):
         if all_metrics:
             st.success("Analysis complete!")
             
-            # --- Results Section ---
-            st.subheader("Portfolio Summary")
-            
-            # Calculate annual income
-            annual_income = portfolio_value * (weighted_yield_sum / 100.0)
-            
-            # Display metrics below the table
-            col_metric1, col_metric2 = st.columns(2)
-            with col_metric1:
-                st.metric(label="**Weighted Average Dividend Yield**", value=f"{weighted_yield_sum:.2f}%")
-            with col_metric2:
-                st.metric(label="**Estimated Annual Dividend Income**", value=f"${annual_income:,.2f}")
-            
-            # --- Detailed Table ---
-            st.markdown("---")
-            st.subheader("Detailed Metrics Comparison")
             df_comp = pd.DataFrame(all_metrics).set_index('Ticker')
             cols = ['Portfolio Weight %'] + [col for col in df_comp.columns if col != 'Portfolio Weight %']
             df_comp = df_comp[cols]
 
+            # --- Results Section (Reordered as requested) ---
+            
+            # 1. Detailed Table
+            st.subheader("Detailed Metrics Comparison")
             st.dataframe(
                 df_comp.style.format({
                     'Portfolio Weight %': '{:.1f}%', 'Expense Ratio %': '{:.2f}%',
@@ -159,13 +141,35 @@ if st.button("Calculate & Analyze Portfolio"):
                 use_container_width=True
             )
 
-            # --- Chart Section ---
+            # 2. Portfolio Summary
             st.markdown("---")
-            st.subheader("Dividend Income Contribution per ETF")
+            st.subheader("Portfolio Summary")
+            annual_income = portfolio_value * (weighted_yield_sum / 100.0)
+            
+            col_metric1, col_metric2 = st.columns(2)
+            with col_metric1:
+                st.metric(label="**Weighted Average Dividend Yield**", value=f"{weighted_yield_sum:.2f}%")
+            with col_metric2:
+                st.metric(label="**Estimated Annual Dividend Income**", value=f"${annual_income:,.2f}")
+            
+            # 3. Chart Section
+            st.markdown("---")
+            st.subheader("Annual Dividend Income Contribution per ETF")
             
             df_comp['Income Contribution ($)'] = (df_comp['Yield %'] / 100) * (df_comp['Portfolio Weight %'] / 100) * portfolio_value
-            st.bar_chart(df_comp, y='Income Contribution ($)')
             
+            # NEW: Pie chart using Plotly
+            fig = px.pie(
+                df_comp,
+                values='Income Contribution ($)',
+                names=df_comp.index,
+                title='Annual Dividend Projection by ETF',
+                hole=.3 # Makes it a donut chart
+            )
+            fig.update_traces(textinfo='percent+label', pull=[0.05, 0, 0, 0])
+            st.plotly_chart(fig, use_container_width=True)
+
+            # 4. Disclaimer
             st.info("""
                 **Disclaimer:** This tool is for informational purposes only and does not constitute financial advice. 
                 All calculations are based on publicly available data which may not be 100% accurate. 
@@ -175,7 +179,7 @@ if st.button("Calculate & Analyze Portfolio"):
 # --- Sidebar ---
 st.sidebar.header("About")
 st.sidebar.info("This app provides tools for ETF analysis. The main feature is a portfolio dividend calculator based on user-defined weights and total value.")
-bmac_link = "https://www.buymeacoffee.com/rubenjromo" 
+bmac_link = "https://www.buymeacofee.com/rubenjromo" 
 st.sidebar.markdown(f"""<a href="{bmac_link}" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 50px !important;width: 200px !important;" ></a>""", unsafe_allow_html=True)
 st.sidebar.markdown("---")
 st.sidebar.info("Created with ❤️ using Python and Streamlit.")
