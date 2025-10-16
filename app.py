@@ -74,8 +74,8 @@ def get_etf_metrics(ticker_symbol):
             'Ticker': info.get('symbol', ticker_symbol),
             'Name': info.get('shortName', 'N/A'),
             'Category': info.get('category', 'N/A'),
-            'Expense Ratio %': info.get('netExpenseRatio') or 0,
-            'Yield %': info.get('dividendYield') or 0,
+            'Expense Ratio %': (info.get('netExpenseRatio') or 0) * 100,
+            'Yield %': (info.get('yield') or 0) * 100,
             'YTD Return %': info.get('ytdReturn'),
             '5Y CAGR %': (cagr_5y * 100) if cagr_5y is not None else np.nan,
             'Last Dividend': last_dividend,
@@ -147,4 +147,8 @@ st.sidebar.info("This app provides tools for ETF analysis, including metric comp
 bmac_link = "https://www.buymeacoffee.com/rubenjromo" 
 st.sidebar.markdown(f"""
 <a href="{bmac_link}" target="_blank">
-    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 50px !important;width: 200px !import
+    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 50px !important;width: 200px !important;" >
+</a>
+""", unsafe_allow_html=True)
+st.sidebar.markdown("---")
+st.sidebar.info("Created with ❤️ using Python and Streamlit.")
