@@ -3,7 +3,7 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta, timezone
 import numpy as np
-import plotly.express as px # NEW: Import Plotly for pie charts
+import plotly.express as px
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -15,7 +15,7 @@ st.set_page_config(
 # --- Logic Functions ---
 
 def get_cagr(ticker, years=5):
-    """Calculates the Compound Annual Growth Rate for a ticker."""
+    """Calculates the Compound Annual Growth Rate for a ticker's price."""
     try:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=years * 365)
@@ -27,6 +27,24 @@ def get_cagr(ticker, years=5):
         if actual_years < 1: return None
         if start_price > 0 and end_price > 0:
             return ((end_price / start_price) ** (1 / actual_years)) - 1
+        return None
+    except Exception:
+        return None
+
+# NEW: Function to calculate dividend growth CAGR
+def get_dividend_growth_cagr(dividends, years=5):
+    """Calculates the CAGR of annual dividend sums."""
+    try:
+        if dividends.empty: return None
+        start_year = datetime.now().year - (years + 1)
+        annual_dividends = dividends[dividends.index.year > start_year].resample('YE').sum()
+        annual_dividends = annual_dividends[annual_dividends > 0]
+        if len(annual_dividends) < 2: return None
+        start_value = annual_dividends.iloc[0]
+        end_value = annual_dividends.iloc[-1]
+        num_years = annual_dividends.index.year[-1] - annual_dividends.index.year[0]
+        if num_years > 0:
+            return ((end_value / start_value) ** (1 / num_years)) - 1
         return None
     except Exception:
         return None
@@ -56,6 +74,7 @@ def get_etf_metrics(ticker_symbol):
         last_dividend = dividends.iloc[-1] if not dividends.empty else 0
         dividend_frequency = get_dividend_frequency(dividends)
         cagr_5y = get_cagr(etf_yf, years=5)
+        div_growth_5y = get_dividend_growth_cagr(dividends, years=5) # NEW
 
         metrics = {
             'Ticker': info.get('symbol', ticker_symbol),
@@ -65,6 +84,7 @@ def get_etf_metrics(ticker_symbol):
             'Yield %': info.get('dividendYield') or 0,
             'YTD Return %': info.get('ytdReturn'),
             '5Y CAGR %': (cagr_5y * 100) if cagr_5y is not None else np.nan,
+            '5Y Div. Growth %': (div_growth_5y * 100) if div_growth_5y is not None else np.nan, # NEW
             'Last Dividend': last_dividend,
             'Price': info.get('regularMarketPrice'),
             'Dividend Frequency': dividend_frequency,
@@ -99,15 +119,15 @@ if st.button("Calculate & Analyze Portfolio"):
 
     for line in lines:
         parts = line.split()
-        if len(parts) != 2: st.error(f"Error en la línea: '{line}'. Usa el formato 'TICKER PESO'."); valid_input = False; break
+        if len(parts) != 2: st.error(f"Error in line: '{line}'. Use 'TICKER WEIGHT' format."); valid_input = False; break
         try:
             ticker, weight = parts[0].upper(), float(parts[1])
             portfolio[ticker] = weight
             total_weight += weight
-        except ValueError: st.error(f"Peso inválido en la línea: '{line}'. Usa un número."); valid_input = False; break
+        except ValueError: st.error(f"Invalid weight in line: '{line}'. Please use a number."); valid_input = False; break
     
     if abs(total_weight - 100.0) > 0.1 and valid_input:
-        st.warning(f"La suma de los pesos es {total_weight}%. Se recomienda que sea 100%.", icon="⚠️")
+        st.warning(f"The sum of weights is {total_weight}%. It is recommended that the sum be 100%.", icon="⚠️")
 
     if valid_input and portfolio:
         with st.spinner("Fetching data and calculating..."):
@@ -128,20 +148,19 @@ if st.button("Calculate & Analyze Portfolio"):
             cols = ['Portfolio Weight %'] + [col for col in df_comp.columns if col != 'Portfolio Weight %']
             df_comp = df_comp[cols]
 
-            # --- Results Section (Reordered as requested) ---
+            # --- Results Section ---
             
-            # 1. Detailed Table
             st.subheader("Detailed Metrics Comparison")
             st.dataframe(
                 df_comp.style.format({
                     'Portfolio Weight %': '{:.1f}%', 'Expense Ratio %': '{:.2f}%',
                     'Yield %': '{:.2f}%', 'YTD Return %': '{:.2f}%', '5Y CAGR %': '{:.2f}%',
+                    '5Y Div. Growth %': '{:.2f}%', # NEW
                     'Last Dividend': '${:,.4f}', 'Price': '${:,.2f}', 'Total Assets': '${:,.0f}'
                 }, na_rep="N/A"),
                 use_container_width=True
             )
 
-            # 2. Portfolio Summary
             st.markdown("---")
             st.subheader("Portfolio Summary")
             annual_income = portfolio_value * (weighted_yield_sum / 100.0)
@@ -152,24 +171,25 @@ if st.button("Calculate & Analyze Portfolio"):
             with col_metric2:
                 st.metric(label="**Estimated Annual Dividend Income**", value=f"${annual_income:,.2f}")
             
-            # 3. Chart Section
             st.markdown("---")
-            st.subheader("Annual Dividend Income Contribution per ETF")
+            st.subheader("Annual Dividend Income Contribution")
             
             df_comp['Income Contribution ($)'] = (df_comp['Yield %'] / 100) * (df_comp['Portfolio Weight %'] / 100) * portfolio_value
             
-            # NEW: Pie chart using Plotly
+            # CORRECTED: Pie chart with both percentage and value
             fig = px.pie(
                 df_comp,
                 values='Income Contribution ($)',
                 names=df_comp.index,
                 title='Annual Dividend Projection by ETF',
-                hole=.3 # Makes it a donut chart
+                hole=.3
             )
-            fig.update_traces(textinfo='percent+label', pull=[0.05, 0, 0, 0])
+            fig.update_traces(
+                texttemplate='%{label}: %{percent:.1%} <br>($%{value:,.2f})', 
+                textposition='inside'
+            )
             st.plotly_chart(fig, use_container_width=True)
 
-            # 4. Disclaimer
             st.info("""
                 **Disclaimer:** This tool is for informational purposes only and does not constitute financial advice. 
                 All calculations are based on publicly available data which may not be 100% accurate. 
@@ -179,7 +199,7 @@ if st.button("Calculate & Analyze Portfolio"):
 # --- Sidebar ---
 st.sidebar.header("About")
 st.sidebar.info("This app provides tools for ETF analysis. The main feature is a portfolio dividend calculator based on user-defined weights and total value.")
-bmac_link = "https://www.buymeacofee.com/rubenjromo" 
+bmac_link = "https://www.buymeacoffee.com/rubenjromo" 
 st.sidebar.markdown(f"""<a href="{bmac_link}" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 50px !important;width: 200px !important;" ></a>""", unsafe_allow_html=True)
 st.sidebar.markdown("---")
 st.sidebar.info("Created with ❤️ using Python and Streamlit.")
