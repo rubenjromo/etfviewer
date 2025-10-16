@@ -2,10 +2,6 @@ streamlit
 pandas
 yfinance
 plotly
-requests-cache
 matplotlib
 numpy
-lxml
-requests
-html5lib
 etfpy
