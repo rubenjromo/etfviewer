@@ -36,13 +36,20 @@ def get_dividend_growth_cagr(dividends, years=5):
     """Calculates the CAGR of annual dividend sums."""
     try:
         if dividends.empty: return None
+        # We need years+1 of data to calculate 'years' of growth
         start_year = datetime.now().year - (years + 1)
+        
+        # Resample to get total dividends per year
         annual_dividends = dividends[dividends.index.year > start_year].resample('YE').sum()
+        
+        # Drop years with zero dividends to avoid division errors and ensure we have enough data
         annual_dividends = annual_dividends[annual_dividends > 0]
         if len(annual_dividends) < 2: return None
+
         start_value = annual_dividends.iloc[0]
         end_value = annual_dividends.iloc[-1]
         num_years = annual_dividends.index.year[-1] - annual_dividends.index.year[0]
+
         if num_years > 0:
             return ((end_value / start_value) ** (1 / num_years)) - 1
         return None
@@ -88,7 +95,6 @@ def get_etf_metrics(ticker_symbol):
             'Last Dividend': last_dividend,
             'Price': info.get('regularMarketPrice'),
             'Dividend Frequency': dividend_frequency,
-            'Total Assets': info.get('totalAssets'),
         }
         return metrics
     except Exception:
@@ -154,9 +160,9 @@ if st.button("Calculate & Analyze Portfolio"):
             st.dataframe(
                 df_comp.style.format({
                     'Portfolio Weight %': '{:.1f}%', 'Expense Ratio %': '{:.2f}%',
-                    'Yield %': '{:.2f}%', 'YTD Return %': '{:.2f}%', '5Y CAGR %': '{:.2f}%',
-                    '5Y Div. Growth %': '{:.2f}%', # NEW
-                    'Last Dividend': '${:,.4f}', 'Price': '${:,.2f}', 'Total Assets': '${:,.0f}'
+                    'Yield %': '{:.2f}%', 'YTD Return %': '{:.2f}%',
+                    '5Y CAGR %': '{:.2f}%', '5Y Div. Growth %': '{:.2f}%',
+                    'Last Dividend': '${:,.4f}', 'Price': '${:,.2f}'
                 }, na_rep="N/A"),
                 use_container_width=True
             )
@@ -176,18 +182,11 @@ if st.button("Calculate & Analyze Portfolio"):
             
             df_comp['Income Contribution ($)'] = (df_comp['Yield %'] / 100) * (df_comp['Portfolio Weight %'] / 100) * portfolio_value
             
-            # CORRECTED: Pie chart with both percentage and value
             fig = px.pie(
-                df_comp,
-                values='Income Contribution ($)',
-                names=df_comp.index,
-                title='Annual Dividend Projection by ETF',
-                hole=.3
+                df_comp, values='Income Contribution ($)', names=df_comp.index,
+                title='Annual Dividend Projection by ETF', hole=.3
             )
-            fig.update_traces(
-                texttemplate='%{label}: %{percent:.1%} <br>($%{value:,.2f})', 
-                textposition='inside'
-            )
+            fig.update_traces(texttemplate='%{label}: %{percent:.1%} <br>($%{value:,.2f})', textposition='inside')
             st.plotly_chart(fig, use_container_width=True)
 
             st.info("""
