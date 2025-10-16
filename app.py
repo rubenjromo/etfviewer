@@ -3,7 +3,6 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta, timezone
 import numpy as np
-import requests
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -74,6 +73,22 @@ def get_etf_metrics(ticker_symbol):
     except Exception:
         return None
 
+# NEW: A dedicated, reliable function for getting holdings
+@st.cache_data(ttl=3600)
+def get_etf_holdings(ticker_symbol):
+    """Gets top holdings for an ETF using the yfinance library's holdings attribute."""
+    try:
+        etf = yf.Ticker(ticker_symbol)
+        holdings_df = etf.holdings
+        if holdings_df is not None and not holdings_df.empty:
+            # Rename columns for clarity and consistency
+            holdings_df = holdings_df.rename(columns={'Holding Name': 'Company', 'Holding Percent': '% Assets'})
+            return holdings_df
+        else:
+            return None
+    except Exception:
+        return None
+
 # --- User Interface (UI) ---
 st.title("🛠️ ETF Analysis Tool")
 st.header("🆚 Key Metrics Comparator")
@@ -102,37 +117,21 @@ if st.button("Compare ETFs"):
             )
 
 st.header("📊 ETF Holdings Viewer")
-st.markdown("Enter a single ETF ticker to view its top holdings. This uses an external data source and may take a moment.")
+st.markdown("Enter a single ETF ticker to view its top holdings. This data comes directly from the yfinance library.")
 holdings_input = st.text_input("Enter a single ETF ticker for holdings analysis", value="SCHD")
 
 if st.button("Get Holdings"):
     if holdings_input:
         ticker_str = holdings_input.strip().upper()
         with st.spinner(f"Fetching holdings for {ticker_str}..."):
-            try:
-                # CORRECTED: Pointing to the main quote page, as the /holdings sub-page no longer exists.
-                url = f"https://finance.yahoo.com/quote/{ticker_str}"
-                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
-                response = requests.get(url, headers=headers)
-                response.raise_for_status()
-                
-                tables = pd.read_html(response.text)
-                
-                # Search for the correct table by checking for expected columns
-                holdings_df = None
-                for table in tables:
-                    if all(col in table.columns for col in ['Name', 'Symbol', '% Assets']):
-                        holdings_df = table
-                        break
-                
-                if holdings_df is not None:
-                    st.success(f"Top holdings for {ticker_str}:")
-                    st.dataframe(holdings_df[['Name', 'Symbol', '% Assets']], use_container_width=True)
-                else:
-                    st.error(f"Could not find a holdings table for {ticker_str} on Yahoo Finance.")
-
-            except Exception as e:
-                st.error(f"Could not retrieve holdings for {ticker_str}. It may not be supported or the website structure changed. Error: {e}")
+            # CORRECTED: Using the new, reliable function instead of web scraping
+            holdings_df = get_etf_holdings(ticker_str)
+            
+            if holdings_df is not None:
+                st.success(f"Top holdings for {ticker_str}:")
+                st.dataframe(holdings_df[['Company', 'Symbol', '% Assets']], use_container_width=True)
+            else:
+                st.error(f"Could not retrieve holdings for {ticker_str}. The data may not be available via the yfinance library for this ETF.")
 
 # --- Sidebar ---
 st.sidebar.header("About")
