@@ -73,27 +73,10 @@ def get_etf_metrics(ticker_symbol):
     except Exception:
         return None
 
-# NEW: A dedicated, reliable function for getting holdings via yfinance
-@st.cache_data(ttl=3600)
-def get_etf_holdings(ticker_symbol):
-    """Gets top holdings for an ETF using the yfinance library's funds_data attribute."""
-    try:
-        etf = yf.Ticker(ticker_symbol)
-        holdings_data = etf.funds_data.get('top_holdings')
-        if holdings_data:
-            df = pd.DataFrame(holdings_data)
-            # Rename columns for clarity and consistency
-            df = df.rename(columns={'holdingName': 'Company', 'holdingPercent': '% Assets'})
-            return df
-        else:
-            return None
-    except Exception:
-        return None
-
 # --- User Interface (UI) ---
 st.title("🛠️ ETF Analysis & Portfolio Tool")
-
 st.header("💵 Portfolio Dividend Calculator")
+
 col1, col2 = st.columns(2)
 with col1:
     portfolio_input = st.text_area(
@@ -112,6 +95,7 @@ if st.button("Calculate & Analyze Portfolio"):
     portfolio = {}
     total_weight = 0
     valid_input = True
+
     for line in lines:
         parts = line.split()
         if len(parts) != 2: st.error(f"Error in line: '{line}'. Use 'TICKER WEIGHT' format."); valid_input = False; break
@@ -128,15 +112,20 @@ if st.button("Calculate & Analyze Portfolio"):
         with st.spinner("Fetching data and calculating..."):
             all_metrics = []
             weighted_yield_sum = 0
+            weighted_expense_ratio_sum = 0 # NEW: Initialize expense ratio sum
+            
             for ticker, weight in portfolio.items():
                 metrics = get_etf_metrics(ticker)
                 if metrics:
                     metrics['Portfolio Weight %'] = weight
                     all_metrics.append(metrics)
+                    # Add to weighted sums
                     weighted_yield_sum += (metrics.get('Yield %', 0) or 0) * (weight / 100.0)
+                    weighted_expense_ratio_sum += (metrics.get('Expense Ratio %', 0) or 0) * (weight / 100.0) # NEW
         
         if all_metrics:
             st.success("Analysis complete!")
+            
             df_comp = pd.DataFrame(all_metrics).set_index('Ticker')
             cols = ['Portfolio Weight %'] + [col for col in df_comp.columns if col != 'Portfolio Weight %']
             df_comp = df_comp[cols]
@@ -145,52 +134,47 @@ if st.button("Calculate & Analyze Portfolio"):
             st.dataframe(
                 df_comp.style.format({
                     'Portfolio Weight %': '{:.1f}%', 'Expense Ratio %': '{:.2f}%',
-                    'Yield %': '{:.2f}%', 'YTD Return %': '{:.2f}%', '5Y CAGR %': '{:.2f}%',
+                    'Yield %': '{:.2f}%', 'YTD Return %': '{:.2f}%',
+                    '5Y CAGR %': '{:.2f}%',
                     'Last Dividend': '${:,.4f}', 'Price': '${:,.2f}'
                 }, na_rep="N/A"),
                 use_container_width=True
             )
-            
+
             st.markdown("---")
             st.subheader("Portfolio Summary")
             annual_income = portfolio_value * (weighted_yield_sum / 100.0)
-            col_metric1, col_metric2 = st.columns(2)
+            
+            # CORRECTED: Using 3 columns for a balanced layout
+            col_metric1, col_metric2, col_metric3 = st.columns(3)
             with col_metric1:
                 st.metric(label="**Weighted Average Dividend Yield**", value=f"{weighted_yield_sum:.2f}%")
             with col_metric2:
                 st.metric(label="**Estimated Annual Dividend Income**", value=f"${annual_income:,.2f}")
+            with col_metric3:
+                st.metric(label="**Weighted Average Expense Ratio**", value=f"{weighted_expense_ratio_sum:.2f}%") # NEW
             
             st.markdown("---")
             st.subheader("Annual Dividend Income Contribution")
+            
             df_comp['Income Contribution ($)'] = (df_comp['Yield %'] / 100) * (df_comp['Portfolio Weight %'] / 100) * portfolio_value
-            fig = px.pie(df_comp, values='Income Contribution ($)', names=df_comp.index, title='Annual Dividend Projection by ETF', hole=.3)
+            
+            fig = px.pie(
+                df_comp, values='Income Contribution ($)', names=df_comp.index,
+                title='Annual Dividend Projection by ETF', hole=.3
+            )
             fig.update_traces(texttemplate='%{label}: %{percent:.1%} <br>($%{value:,.2f})', textposition='inside')
             st.plotly_chart(fig, use_container_width=True)
 
-# --- Holdings Viewer Section ---
-st.markdown("---")
-st.header("📊 ETF Holdings Viewer")
-st.markdown("Enter a single ETF ticker to view its top holdings directly from `yfinance`.")
-holdings_input = st.text_input("Enter a single ETF ticker", value="SCHD")
+            st.info("""
+                **Disclaimer:** This tool is for informational purposes only and does not constitute financial advice. 
+                All calculations are based on publicly available data which may not be 100% accurate. 
+                Always do your own research before making any investment decisions.
+            """, icon="⚠️")
 
-if st.button("Get Holdings"):
-    if holdings_input:
-        ticker_str = holdings_input.strip().upper()
-        with st.spinner(f"Fetching holdings for {ticker_str}..."):
-            holdings_df = get_etf_holdings(ticker_str)
-            if holdings_df is not None:
-                st.success(f"Top holdings for {ticker_str}:")
-                st.dataframe(holdings_df[['Company', 'symbol', '% Assets']], use_container_width=True)
-            else:
-                st.error(f"Could not retrieve holdings for {ticker_str}. The data may not be available for this ETF via the yfinance library.")
-
-# --- Disclaimer and Sidebar ---
-st.info("""
-    **Disclaimer:** This tool is for informational purposes only and does not constitute financial advice. All calculations are based on publicly available data which may not be 100% accurate. Always do your own research before making any investment decisions.
-""", icon="⚠️")
-
+# --- Sidebar ---
 st.sidebar.header("About")
-st.sidebar.info("This app provides tools for ETF analysis, including a portfolio dividend calculator and a holdings viewer.")
+st.sidebar.info("This app provides a portfolio dividend and expense ratio calculator based on user-defined weights and total value.") # Updated sidebar text
 bmac_link = "https://www.buymeacoffee.com/rubenjromo" 
 st.sidebar.markdown(f"""<a href="{bmac_link}" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 50px !important;width: 200px !important;" ></a>""", unsafe_allow_html=True)
 st.sidebar.markdown("---")
