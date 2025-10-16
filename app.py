@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone # MODIFIED: Added timezone import
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -17,7 +17,8 @@ def get_dividend_frequency(dividends):
     if dividends.empty:
         return "N/A"
     
-    twelve_months_ago = datetime.now() - timedelta(days=365)
+    # MODIFIED: Made the date timezone-aware (UTC) to allow for correct comparison.
+    twelve_months_ago = datetime.now(timezone.utc) - timedelta(days=365)
     recent_dividends = dividends[dividends.index > twelve_months_ago]
     
     count = len(recent_dividends)
@@ -46,7 +47,6 @@ def get_etf_metrics(ticker_symbol):
         last_dividend = dividends.iloc[-1] if not dividends.empty else 0
         dividend_frequency = get_dividend_frequency(dividends)
 
-        # Reordered and updated metrics as requested
         metrics = {
             'Ticker': info.get('symbol', ticker_symbol),
             'Name': info.get('shortName', 'N/A'),
@@ -95,29 +95,3 @@ if st.sidebar.button("Compare ETFs"):
             for i, ticker in enumerate(tickers):
                 metrics = get_etf_metrics(ticker)
                 if metrics:
-                    all_metrics.append(metrics)
-                progress_bar.progress((i + 1) / len(tickers))
-
-        if all_metrics:
-            st.success("Comparison data fetched successfully!")
-            
-            df = pd.DataFrame(all_metrics).set_index('Ticker')
-
-            # Removed color gradients and updated formatting
-            st.dataframe(
-                df.style.format({
-                    'Price': '${:,.2f}',
-                    'Expense Ratio %': '{:.2f}%',
-                    'Yield %': '{:.2f}%',
-                    'YTD Return %': '{:.2f}%',
-                    'Last Dividend': '${:,.4f}',
-                    'Beta (3Y)': '{:.2f}',
-                    'Total Assets': '{:,.0f}'
-                }),
-                use_container_width=True
-            )
-    else:
-        st.warning("Please enter at least one ETF ticker.")
-
-st.sidebar.markdown("---")
-st.sidebar.info("Created with ❤️ using Python and Streamlit.")
