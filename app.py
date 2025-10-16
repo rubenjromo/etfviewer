@@ -110,16 +110,22 @@ if st.button("Get Holdings"):
         ticker_str = holdings_input.strip().upper()
         with st.spinner(f"Fetching holdings for {ticker_str}..."):
             try:
-                # CORRECTED: Removed the trailing slash from 'holdings/'. This is the definitive fix.
-                url = f"https://finance.yahoo.com/quote/{ticker_str}/holdings?p={ticker_str}"
+                # CORRECTED: Pointing to the main quote page, as the /holdings sub-page no longer exists.
+                url = f"https://finance.yahoo.com/quote/{ticker_str}"
                 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
                 response = requests.get(url, headers=headers)
                 response.raise_for_status()
                 
                 tables = pd.read_html(response.text)
                 
-                if tables:
-                    holdings_df = tables[0]
+                # Search for the correct table by checking for expected columns
+                holdings_df = None
+                for table in tables:
+                    if all(col in table.columns for col in ['Name', 'Symbol', '% Assets']):
+                        holdings_df = table
+                        break
+                
+                if holdings_df is not None:
                     st.success(f"Top holdings for {ticker_str}:")
                     st.dataframe(holdings_df[['Name', 'Symbol', '% Assets']], use_container_width=True)
                 else:
