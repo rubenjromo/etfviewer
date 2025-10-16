@@ -4,5 +4,3 @@ yfinance
 plotly
 matplotlib
 numpy
-etfpy
-pyetf
