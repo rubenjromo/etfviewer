@@ -4,7 +4,6 @@ import yfinance as yf
 from datetime import datetime, timedelta, timezone
 import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -79,18 +78,9 @@ def get_historical_prices(tickers):
     """Fetches 5-year historical closing prices for a list of tickers."""
     try:
         data = yf.download(tickers, period="5y", auto_adjust=True)['Close']
-        return data
+        return data.round(2)
     except Exception:
         return None
-
-# NEW: Function to calculate normalized growth
-def get_normalized_growth(price_history):
-    """Converts a price history DataFrame to a normalized growth DataFrame starting at 0%."""
-    if price_history is None or price_history.empty:
-        return None
-    # Normalize by dividing all prices by the first price, then convert to percentage
-    normalized = (price_history / price_history.iloc[0] - 1) * 100
-    return normalized.round(2)
 
 # --- User Interface (UI) ---
 st.title("🛠️ ETF Analysis & Portfolio Tool")
@@ -161,14 +151,28 @@ if st.button("Calculate & Analyze Portfolio"):
             
             price_history = get_historical_prices(list(portfolio.keys()))
             
-            # CORRECTED: Using a new function for normalized growth chart
             st.markdown("---")
-            st.subheader("5-Year Cumulative Performance (%)")
-            growth_history = get_normalized_growth(price_history)
-            if growth_history is not None and not growth_history.empty:
-                st.line_chart(growth_history)
-            else:
-                st.warning("Could not retrieve historical price data for the selected ETFs.")
+            st.subheader("5-Year Historical Performance")
+            
+            # CORRECTED: Using two columns for the chart and the new growth table
+            chart_col, table_col = st.columns([2, 1]) # Give more space to the chart
+
+            with chart_col:
+                if price_history is not None and not price_history.empty:
+                    st.line_chart(price_history)
+                else:
+                    st.warning("Could not retrieve historical price data for the selected ETFs.")
+            
+            with table_col:
+                if price_history is not None and not price_history.empty:
+                    st.markdown("**Total Growth (5-Year Period)**")
+                    # Calculate total growth percentage for each ETF
+                    total_growth = (price_history.iloc[-1] / price_history.iloc[0] - 1) * 100
+                    st.dataframe(
+                        total_growth.rename("Growth %").to_frame(),
+                        column_config={"Growth %": st.column_config.NumberColumn(format="%.2f%%")}
+                    )
+
 
             st.markdown("---")
             st.subheader("Portfolio Summary")
