@@ -3,7 +3,6 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta, timezone
 import numpy as np
-import pyetf as etf # NEW: Importing the new, correct library
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -74,25 +73,15 @@ def get_etf_metrics(ticker_symbol):
     except Exception:
         return None
 
-# CORRECTED: Using the pyetf library for a reliable holdings source
-@st.cache_data(ttl=3600)
-def get_etf_holdings_from_pyetf(ticker_symbol):
-    """Gets top holdings for an ETF using the pyetf library."""
-    try:
-        holdings_df = etf.holdings(ticker_symbol)
-        if holdings_df is not None and not holdings_df.empty:
-            return holdings_df
-        else:
-            return None
-    except Exception as e:
-        st.error(f"Could not retrieve holdings for {ticker_symbol} using pyetf. Error: {e}")
-        return None
-
 # --- User Interface (UI) ---
 st.title("🛠️ ETF Analysis Tool")
 st.header("🆚 Key Metrics Comparator")
 st.markdown("Enter multiple ETF tickers to compare their key financial metrics side-by-side.")
-etf_input = st.text_area("Enter ETF tickers separated by commas or spaces", value="VOO, SCHD, QQQ, JEPI", help="Example: VOO SCHD QQQ JEPI")
+etf_input = st.text_area(
+    "Enter ETF tickers separated by commas or spaces",
+    value="VOO, SCHD, QQQ, JEPI",
+    help="Example: VOO SCHD QQQ JEPI"
+)
 
 if st.button("Compare ETFs"):
     tickers = [ticker.strip().upper() for ticker in etf_input.replace(',', ' ').split() if ticker.strip()]
@@ -114,21 +103,6 @@ if st.button("Compare ETFs"):
                 }, na_rep="N/A"),
                 use_container_width=True
             )
-
-st.header("📊 ETF Holdings Viewer")
-st.markdown("Enter a single ETF ticker to view its top holdings.")
-holdings_input = st.text_input("Enter a single ETF ticker for holdings analysis", value="SCHD")
-
-if st.button("Get Holdings"):
-    if holdings_input:
-        ticker_str = holdings_input.strip().upper()
-        with st.spinner(f"Fetching holdings for {ticker_str}..."):
-            holdings_df = get_etf_holdings_from_pyetf(ticker_str)
-            
-            if holdings_df is not None:
-                st.success(f"Top holdings for {ticker_str}:")
-                st.dataframe(holdings_df, use_container_width=True)
-            # The function now handles its own error messages
 
 # --- Sidebar ---
 st.sidebar.header("About")
