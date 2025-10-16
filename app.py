@@ -48,8 +48,8 @@ def get_etf_metrics(ticker_symbol):
     try:
         etf_yf = yf.Ticker(ticker_symbol)
         info = etf_yf.info
-        if not info or info.get('quoteType') != 'ETF':
-            # Allow non-ETF tickers like BTC-USD
+        if not info:
+             # Handle non-ETF assets like BTC-USD
             if '-' in ticker_symbol:
                  return {'Ticker': ticker_symbol, 'Name': ticker_symbol}
             st.warning(f"Could not get valid ETF data for {ticker_symbol}.", icon="⚠️")
@@ -74,19 +74,51 @@ def get_etf_metrics(ticker_symbol):
         }
         return metrics
     except Exception:
+        # Gracefully handle assets with no ETF-specific data
+        if '-' in ticker_symbol:
+            return {'Ticker': ticker_symbol, 'Name': ticker_symbol}
         return None
 
 @st.cache_data(ttl=3600)
 def get_historical_prices(tickers):
     """Fetches 5-year historical closing prices for a list of tickers."""
     try:
-        # yfinance can handle single or multiple tickers
         data = yf.download(tickers, period="5y", auto_adjust=True)['Close']
-        if isinstance(data, pd.Series): # If only one ticker, convert to DataFrame
-            data = data.to_frame(tickers[0])
+        if isinstance(data, pd.Series):
+            data = data.to_frame(name=tickers[0])
         return data.round(2)
     except Exception:
         return None
+
+# NEW: Function to calculate risk metrics
+@st.cache_data(ttl=3600)
+def get_performance_stats(price_history):
+    """Calculates annualized volatility and Sharpe ratio."""
+    if price_history is None or price_history.empty:
+        return None
+    
+    daily_returns = price_history.pct_change().dropna()
+    
+    # Annualized Volatility
+    volatility = daily_returns.std() * np.sqrt(252)
+    
+    # Sharpe Ratio (assuming risk-free rate of 2%)
+    risk_free_rate = 0.02
+    avg_daily_return = daily_returns.mean()
+    sharpe_ratio = (avg_daily_return * 252 - risk_free_rate) / volatility
+    
+    stats_df = pd.DataFrame({
+        'Annualized Volatility (%)': volatility * 100,
+        'Sharpe Ratio': sharpe_ratio
+    })
+    return stats_df
+
+def get_normalized_growth(price_history):
+    """Converts a price history DataFrame to a normalized growth DataFrame."""
+    if price_history is None or price_history.empty:
+        return None
+    normalized = (price_history / price_history.bfill().iloc[0] - 1) * 100
+    return normalized.round(2)
 
 # --- User Interface (UI) ---
 st.title("🛠️ ETF & Asset Analysis Tool")
@@ -141,8 +173,6 @@ if st.button("Calculate & Analyze Portfolio"):
             st.success("Analysis complete!")
             
             df_comp = pd.DataFrame(all_metrics).set_index('Ticker')
-            cols = ['Portfolio Weight %'] + [col for col in df_comp.columns if col != 'Portfolio Weight %']
-            df_comp = df_comp[cols]
             
             st.subheader("Detailed Metrics Comparison")
             st.dataframe(
@@ -156,38 +186,27 @@ if st.button("Calculate & Analyze Portfolio"):
             )
             
             price_history = get_historical_prices(list(portfolio.keys()))
-            
-            st.markdown("---")
-            st.subheader("Historical Performance")
-            
-            chart_col, table_col = st.columns([2, 1])
 
-            with chart_col:
-                if price_history is not None and not price_history.empty:
-                    st.line_chart(price_history)
-                else:
-                    st.warning("Could not retrieve historical price data.")
-            
-            with table_col:
-                if price_history is not None and not price_history.empty:
-                    st.markdown("**Total Growth Over Period**")
-                    
-                    # CORRECTED: Calculate growth for each asset based on its own available history
-                    growth_data = {}
-                    for ticker in price_history.columns:
-                        # Find the first valid price for the ticker
-                        first_valid_index = price_history[ticker].first_valid_index()
-                        if first_valid_index is not None:
-                            start_price = price_history[ticker].loc[first_valid_index]
-                            end_price = price_history[ticker].iloc[-1]
-                            if pd.notna(start_price) and pd.notna(end_price) and start_price != 0:
-                                growth_data[ticker] = (end_price / start_price - 1) * 100
-                    
-                    growth_df = pd.Series(growth_data, name="Growth %").to_frame()
-                    st.dataframe(
-                        growth_df,
-                        column_config={"Growth %": st.column_config.NumberColumn(format="%.2f%%")}
-                    )
+            # --- NEW: Risk & Performance Section ---
+            st.markdown("---")
+            st.subheader("🌟 Risk & Performance Analysis (5-Year)")
+            performance_stats = get_performance_stats(price_history)
+            if performance_stats is not None:
+                st.dataframe(
+                    performance_stats.style.format({
+                        'Annualized Volatility (%)': '{:.2f}%',
+                        'Sharpe Ratio': '{:.2f}'
+                    }),
+                    use_container_width=True
+                )
+
+            st.markdown("---")
+            st.subheader("5-Year Cumulative Growth (%)")
+            growth_history = get_normalized_growth(price_history)
+            if growth_history is not None and not growth_history.empty:
+                st.line_chart(growth_history)
+            else:
+                st.warning("Could not retrieve historical price data for the selected assets.")
 
             st.markdown("---")
             st.subheader("Portfolio Summary")
