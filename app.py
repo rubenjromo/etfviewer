@@ -13,11 +13,15 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- Initialize Session State ---
+# --- Robust Session State Initialization ---
+# This ensures all necessary keys exist when the app starts.
 if 'analysis_run' not in st.session_state:
     st.session_state.analysis_run = False
+if 'weighted_yield_decimal' not in st.session_state:
     st.session_state.weighted_yield_decimal = 0.0
+if 'weighted_cagr_decimal' not in st.session_state:
     st.session_state.weighted_cagr_decimal = 0.0
+if 'portfolio_value' not in st.session_state:
     st.session_state.portfolio_value = 10000.0
 
 # --- Logic Functions ---
@@ -25,18 +29,16 @@ if 'analysis_run' not in st.session_state:
 def normalize_yfinance_percent(value):
     """
     Robustly converts inconsistent percentage values from yfinance.
-    Sometimes yfinance returns a ratio (0.03), sometimes a percentage (3.0).
-    This function intelligently decides whether to multiply by 100.
+    Intelligently decides whether to multiply by 100.
     """
     if value is None or not isinstance(value, (int, float)):
         return np.nan
     val = float(value)
-    # Heuristic: If the absolute value is greater than 1, it's likely already a percentage.
-    if abs(val) > 1:
-        return val
-    # Otherwise, it's a ratio that needs to be converted.
-    else:
+    # Heuristic: If value is between -1 and 1, it's a ratio. Otherwise, it's likely already a percentage.
+    if -1 < val < 1:
         return val * 100.0
+    else:
+        return val
 
 def get_cagr(ticker, years=5):
     """Calculates the Compound Annual Growth Rate for a ticker's price."""
@@ -106,16 +108,11 @@ def simulate_total_growth(initial_investment, annual_growth_decimal, dividend_yi
     """Simulates total portfolio growth including price appreciation and reinvested dividends."""
     rows = []
     current_value = initial_investment
-    for year in range(1, years + 2): # Loop one extra time to show the final value
-        rows.append({'Year': year - 1, 'Projected Portfolio Value ($)': current_value})
-        
-        # Calculate growth and dividends based on the value at the START of the year
+    for year in range(years + 1):
+        rows.append({'Year': year, 'Projected Portfolio Value ($)': current_value})
         price_appreciation = current_value * annual_growth_decimal
         dividends_earned = current_value * dividend_yield_decimal
-        
-        # Update value for the NEXT year (compounding)
         current_value += price_appreciation + dividends_earned
-            
     return pd.DataFrame(rows)
 
 @st.cache_data(ttl=3600)
@@ -184,7 +181,6 @@ if st.button("Calculate & Analyze Portfolio"):
             
             price_history = get_historical_prices(list(portfolio.keys()))
             
-            # Save calculated weighted averages to session state for the projection
             st.session_state.analysis_run = True
             st.session_state.weighted_yield_decimal = weighted_yield_sum_pct / 100.0
             st.session_state.weighted_cagr_decimal = weighted_cagr_sum_pct / 100.0
@@ -215,23 +211,24 @@ if st.button("Calculate & Analyze Portfolio"):
 
             st.markdown("---")
             st.subheader("Annual Dividend Income Contribution")
-            df_comp['Income Contribution ($)'] = (np.nan_to_num(df_comp['Yield %']) / 100.0) * (df_comp['Portfolio Weight %'] / 100.0) * portfolio_value
-            fig_pie = px.pie(
-                df_comp[df_comp['Income Contribution ($)'] > 0], 
-                values='Income Contribution ($)', names=df_comp.index,
-                title='Annual Dividend Projection by Asset', hole=.3
-            )
-            fig_pie.update_traces(texttemplate='%{label}: %{percent:.1%} <br>($%{value:,.2f})', textposition='inside')
-            st.plotly_chart(fig_pie, use_container_width=True)
+            df_comp_pie = df_comp[df_comp['Yield %'] > 0].copy()
+            if not df_comp_pie.empty:
+                df_comp_pie['Income Contribution ($)'] = (np.nan_to_num(df_comp_pie['Yield %']) / 100.0) * (df_comp_pie['Portfolio Weight %'] / 100.0) * portfolio_value
+                fig_pie = px.pie(
+                    df_comp_pie, values='Income Contribution ($)', names=df_comp_pie.index,
+                    title='Annual Dividend Projection by Asset', hole=.3
+                )
+                fig_pie.update_traces(texttemplate='%{label}: %{percent:.1%} <br>($%{value:,.2f})', textposition='inside')
+                st.plotly_chart(fig_pie, use_container_width=True)
+            else:
+                st.info("No assets with a dividend yield were found in the portfolio.")
 
-            if price_history is not None:
+            if price_history is not None and not price_history.empty:
                 st.markdown("---")
                 st.subheader("5-Year Cumulative Growth (%)")
-                growth_history = (price_history.resample('W').last().pct_change().cumsum() * 100).round(2)
-                if not growth_history.empty:
-                    st.line_chart(growth_history)
-                else:
-                    st.warning("Could not retrieve historical price data for growth chart.")
+                # Correctly normalize the growth to a base of 100
+                normalized_growth = (price_history / price_history.bfill().iloc[0]) * 100
+                st.line_chart(normalized_growth)
 
                 if len(price_history.columns) > 1:
                     st.markdown("---")
@@ -241,7 +238,7 @@ if st.button("Calculate & Analyze Portfolio"):
                     fig_corr = px.imshow(corr, text_auto=True, aspect="auto", color_continuous_scale='RdYlGn', range_color=[-1,1])
                     st.plotly_chart(fig_corr, use_container_width=True)
 
-# --- This section is now outside the button logic and uses session_state ---
+# --- Projection Section ---
 if st.session_state.analysis_run:
     st.markdown("---")
     st.subheader("📈 Total Portfolio Growth Projection (with Reinvestment)")
