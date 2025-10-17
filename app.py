@@ -14,7 +14,6 @@ st.set_page_config(
 )
 
 # --- Robust Session State Initialization ---
-# This ensures all necessary keys exist when the app starts.
 if 'analysis_run' not in st.session_state:
     st.session_state.analysis_run = False
 if 'weighted_yield_decimal' not in st.session_state:
@@ -34,9 +33,10 @@ def normalize_yfinance_percent(value):
     if value is None or not isinstance(value, (int, float)):
         return np.nan
     val = float(value)
-    # Heuristic: If value is between -1 and 1, it's a ratio. Otherwise, it's likely already a percentage.
-    if -1 < val < 1:
+    # Heuristic: If value is between -1 and 1 (and not zero), it's a ratio.
+    if -1 < val < 1 and val != 0:
         return val * 100.0
+    # Otherwise, it's likely already a percentage or zero.
     else:
         return val
 
@@ -87,11 +87,14 @@ def get_etf_metrics(ticker_symbol):
         dividend_frequency = get_dividend_frequency(dividends)
         cagr_5y = get_cagr(etf_yf, years=5)
 
+        # Correctly fetch expense ratio with a fallback
+        expense_ratio_raw = info.get('annualReportExpenseRatio') or info.get('netExpenseRatio')
+
         metrics = {
             'Ticker': info.get('symbol', ticker_symbol),
             'Name': info.get('shortName', 'N/A'),
             'Category': info.get('category', 'N/A'),
-            'Expense Ratio %': normalize_yfinance_percent(info.get('annualReportExpenseRatio')),
+            'Expense Ratio %': normalize_yfinance_percent(expense_ratio_raw),
             'Yield %': normalize_yfinance_percent(info.get('yield')),
             'YTD Return %': normalize_yfinance_percent(info.get('ytdReturn')),
             '5Y CAGR %': (cagr_5y * 100) if cagr_5y is not None else np.nan,
@@ -105,14 +108,18 @@ def get_etf_metrics(ticker_symbol):
         return None
 
 def simulate_total_growth(initial_investment, annual_growth_decimal, dividend_yield_decimal, years):
-    """Simulates total portfolio growth including price appreciation and reinvested dividends."""
+    """Simulates total portfolio growth and generates data for a table."""
     rows = []
     current_value = initial_investment
     for year in range(years + 1):
-        rows.append({'Year': year, 'Projected Portfolio Value ($)': current_value})
+        dividends_this_year = round(current_value * dividend_yield_decimal, 2)
+        rows.append({
+            'Year': year,
+            'Projected Portfolio Value ($)': round(current_value, 2),
+            'Estimated Annual Dividend ($)': dividends_this_year
+        })
         price_appreciation = current_value * annual_growth_decimal
-        dividends_earned = current_value * dividend_yield_decimal
-        current_value += price_appreciation + dividends_earned
+        current_value += price_appreciation + dividends_this_year # Reinvest dividends
     return pd.DataFrame(rows)
 
 @st.cache_data(ttl=3600)
@@ -134,7 +141,7 @@ col1, col2 = st.columns(2)
 with col1:
     portfolio_input = st.text_area(
         "**1. Enter your assets and weights**",
-        value="VOO 40\nSCHD 20\nQQQ 20\nCGDG 20",
+        value="VOO 40\nSCHD 40\nQQQ 10\nCGDG 10",
         height=150, help="Use format 'TICKER WEIGHT'. The sum of weights should be 100."
     )
 with col2:
@@ -226,7 +233,6 @@ if st.button("Calculate & Analyze Portfolio"):
             if price_history is not None and not price_history.empty:
                 st.markdown("---")
                 st.subheader("5-Year Cumulative Growth (%)")
-                # Correctly normalize the growth to a base of 100
                 normalized_growth = (price_history / price_history.bfill().iloc[0]) * 100
                 st.line_chart(normalized_growth)
 
@@ -258,7 +264,22 @@ if st.session_state.analysis_run:
             st.session_state.weighted_yield_decimal,
             years_to_project
         )
-        st.line_chart(proj_df.set_index('Year'))
+        st.line_chart(proj_df.set_index('Year')['Projected Portfolio Value ($)'])
+
+        # --- Display Table with 5-Year Intervals ---
+        st.markdown("#### Projection Data (5-Year Intervals)")
+        table_df = proj_df[proj_df['Year'] % 5 == 0].copy()
+        if proj_df.iloc[-1]['Year'] not in table_df['Year'].values:
+            table_df = pd.concat([table_df, proj_df.tail(1)], ignore_index=True)
+        
+        st.dataframe(
+            table_df.style.format({
+                'Projected Portfolio Value ($)': '${:,.2f}',
+                'Estimated Annual Dividend ($)': '${:,.2f}'
+            }), 
+            use_container_width=True
+        )
+
     else:
         st.warning("No growth or dividend data available to create a projection.")
 
