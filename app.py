@@ -14,7 +14,6 @@ st.set_page_config(
 )
 
 # --- Initialize Session State ---
-# This ensures that variables persist across reruns (e.g., when a slider is moved)
 if 'analysis_run' not in st.session_state:
     st.session_state.analysis_run = False
     st.session_state.weighted_yield_decimal = 0.0
@@ -22,12 +21,6 @@ if 'analysis_run' not in st.session_state:
     st.session_state.portfolio_value = 10000.0
 
 # --- Logic Functions ---
-
-def safe_to_percent(value):
-    """Safely converts a decimal value from yfinance to a percentage, returning np.nan for invalid data."""
-    if value is None or not isinstance(value, (int, float)):
-        return np.nan
-    return float(value) * 100.0
 
 def get_cagr(ticker, years=5):
     """Calculates the Compound Annual Growth Rate for a ticker's price."""
@@ -84,17 +77,25 @@ def get_etf_metrics(ticker_symbol):
         dividend_frequency = get_dividend_frequency(dividends)
         cagr_5y = get_cagr(etf_yf, years=5)
 
-        expense_ratio_raw = info.get('annualReportExpenseRatio', info.get('netExpenseRatio'))
-        dividend_yield_raw = info.get('yield', info.get('dividendYield'))
+        # --- CORRECTED LOGIC FOR PERCENTAGES ---
+        # Convert ratio-based values (like yield and return) to percentages
         ytd_return_raw = info.get('ytdReturn')
+        ytd_return_pct = ytd_return_raw * 100.0 if ytd_return_raw is not None else np.nan
+
+        dividend_yield_raw = info.get('yield', info.get('dividendYield'))
+        dividend_yield_pct = dividend_yield_raw * 100.0 if dividend_yield_raw is not None else np.nan
+        
+        # Handle expense ratio, which yfinance often provides as a percentage already
+        expense_ratio_raw = info.get('annualReportExpenseRatio', info.get('netExpenseRatio'))
+        expense_ratio_pct = expense_ratio_raw if expense_ratio_raw is not None else np.nan
 
         metrics = {
             'Ticker': info.get('symbol', ticker_symbol),
             'Name': info.get('shortName', 'N/A'),
             'Category': info.get('category', 'N/A'),
-            'Expense Ratio %': safe_to_percent(expense_ratio_raw),
-            'Yield %': safe_to_percent(dividend_yield_raw),
-            'YTD Return %': safe_to_percent(ytd_return_raw),
+            'Expense Ratio %': expense_ratio_pct,
+            'Yield %': dividend_yield_pct,
+            'YTD Return %': ytd_return_pct,
             '5Y CAGR %': (cagr_5y * 100) if cagr_5y is not None else np.nan,
             'Last Dividend': last_dividend,
             'Price': info.get('regularMarketPrice'),
@@ -186,7 +187,7 @@ def get_dividend_metrics_for_projection(symbol):
     try:
         info = yf.Ticker(symbol).info or {}
         raw_yield = info.get('yield', info.get('dividendYield'))
-        div_yield_pct = safe_to_percent(raw_yield)
+        div_yield_pct = raw_yield * 100.0 if raw_yield is not None else np.nan
         
         div_series = get_dividend_series(symbol)
         div_cagr = compute_dividend_cagr(div_series, years=5)
