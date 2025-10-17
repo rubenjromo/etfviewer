@@ -76,7 +76,7 @@ def get_etf_metrics(ticker_symbol):
         
         # Expense Ratio is returned as a decimal (0.0003 for 0.03%), so we multiply by 100.
         expense_ratio_raw = info.get('annualReportExpenseRatio') or info.get('netExpenseRatio')
-        expense_ratio_pct = float(expense_ratio_raw) * 100.0 if expense_ratio_raw is not None else np.nan
+        expense_ratio_pct = float(expense_ratio_raw) if expense_ratio_raw is not None else np.nan
         
         # Yield and YTD Return are also returned as decimals (e.g., 0.015 for 1.5%)
         yield_raw = info.get('yield') or info.get('dividendYield')
