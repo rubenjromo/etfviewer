@@ -25,21 +25,6 @@ if 'portfolio_value' not in st.session_state:
 
 # --- Logic Functions ---
 
-def normalize_yfinance_percent(value):
-    """
-    Robustly converts inconsistent percentage values from yfinance.
-    Intelligently decides whether to multiply by 100.
-    """
-    if value is None or not isinstance(value, (int, float)):
-        return np.nan
-    val = float(value)
-    # Heuristic: If value is between -1 and 1 (and not zero), it's a ratio.
-    if -1 < val < 1 and val != 0:
-        return val * 100.0
-    # Otherwise, it's likely already a percentage or zero.
-    else:
-        return val
-
 def get_cagr(ticker, years=5):
     """Calculates the Compound Annual Growth Rate for a ticker's price."""
     try:
@@ -87,16 +72,26 @@ def get_etf_metrics(ticker_symbol):
         dividend_frequency = get_dividend_frequency(dividends)
         cagr_5y = get_cagr(etf_yf, years=5)
 
-        # Correctly fetch expense ratio with a fallback
+        # --- FINAL CORRECTED LOGIC FOR PERCENTAGES ---
+        
+        # Expense Ratio is returned as a decimal (0.0003 for 0.03%), so we multiply by 100.
         expense_ratio_raw = info.get('annualReportExpenseRatio') or info.get('netExpenseRatio')
+        expense_ratio_pct = float(expense_ratio_raw) * 100.0 if expense_ratio_raw is not None else np.nan
+        
+        # Yield and YTD Return are also returned as decimals (e.g., 0.015 for 1.5%)
+        yield_raw = info.get('yield') or info.get('dividendYield')
+        yield_pct = float(yield_raw) * 100.0 if yield_raw is not None else np.nan
+
+        ytd_return_raw = info.get('ytdReturn')
+        ytd_return_pct = float(ytd_return_raw) * 100.0 if ytd_return_raw is not None else np.nan
 
         metrics = {
             'Ticker': info.get('symbol', ticker_symbol),
             'Name': info.get('shortName', 'N/A'),
             'Category': info.get('category', 'N/A'),
-            'Expense Ratio %': normalize_yfinance_percent(expense_ratio_raw),
-            'Yield %': normalize_yfinance_percent(info.get('yield')),
-            'YTD Return %': normalize_yfinance_percent(info.get('ytdReturn')),
+            'Expense Ratio %': expense_ratio_pct,
+            'Yield %': yield_pct,
+            'YTD Return %': ytd_return_pct,
             '5Y CAGR %': (cagr_5y * 100) if cagr_5y is not None else np.nan,
             'Last Dividend': last_dividend,
             'Price': info.get('regularMarketPrice'),
@@ -266,7 +261,6 @@ if st.session_state.analysis_run:
         )
         st.line_chart(proj_df.set_index('Year')['Projected Portfolio Value ($)'])
 
-        # --- Display Table with 5-Year Intervals ---
         st.markdown("#### Projection Data (5-Year Intervals)")
         table_df = proj_df[proj_df['Year'] % 5 == 0].copy()
         if proj_df.iloc[-1]['Year'] not in table_df['Year'].values:
