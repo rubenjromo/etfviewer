@@ -83,7 +83,7 @@ def get_etf_metrics(ticker_symbol):
         yield_pct = float(yield_raw) * 100.0 if yield_raw is not None else np.nan
 
         ytd_return_raw = info.get('ytdReturn')
-        ytd_return_pct = float(ytd_return_raw) * 100.0 if ytd_return_raw is not None else np.nan
+        ytd_return_pct = float(ytd_return_raw) if ytd_return_raw is not None else np.nan
 
         metrics = {
             'Ticker': info.get('symbol', ticker_symbol),
