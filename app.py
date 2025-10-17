@@ -4,6 +4,7 @@ import yfinance as yf
 from datetime import datetime, timedelta, timezone
 import numpy as np
 import plotly.express as px
+st.cache_resource.clear()
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -72,36 +73,41 @@ def _percent_from_maybe_decimal(value):
 
 @st.cache_data(ttl=3600)
 def get_etf_metrics(ticker_symbol):
-    """Fetches key comparable metrics for an ETF."""
+    """Fetches key comparable metrics for an ETF or asset with normalized values."""
     try:
         etf_yf = yf.Ticker(ticker_symbol)
-        info = etf_yf.info or {}
+        info = etf_yf.info
         if not info:
-            # Handle non-ETF assets like BTC-USD
+            # Handle crypto or non-ETF assets
             if '-' in ticker_symbol:
                 return {'Ticker': ticker_symbol, 'Name': ticker_symbol}
-            st.warning(f"Could not get valid ETF data for {ticker_symbol}.", icon="⚠️")
+            st.warning(f"Could not get valid data for {ticker_symbol}.", icon="⚠️")
             return None
 
-        # Dividends series
-        dividends = etf_yf.dividends if hasattr(etf_yf, "dividends") else pd.Series(dtype=float)
-        last_dividend = dividends.iloc[-1] if (isinstance(dividends, pd.Series) and not dividends.empty) else 0
-        dividend_frequency = get_dividend_frequency(dividends if isinstance(dividends, pd.Series) else pd.Series())
+        # Normalize numeric fields (sometimes given as 0.06 or 6.0)
+        def normalize_ratio(x):
+            if x is None:
+                return 0
+            try:
+                x = float(x)
+                return x * 100 if x < 1 else x
+            except:
+                return 0
+
+        dividends = etf_yf.dividends
+        last_dividend = dividends.iloc[-1] if not dividends.empty else 0
+        dividend_frequency = get_dividend_frequency(dividends)
         cagr_5y = get_cagr(etf_yf, years=5)
 
-        # Normalize yields / expense ratios to percent values
-        raw_yield = info.get('dividendYield', None)
-        yield_pct = _percent_from_maybe_decimal(raw_yield)
-
-        raw_expense = info.get('netExpenseRatio', None)
-        expense_pct = _percent_from_maybe_decimal(raw_expense)
+        expense_ratio = normalize_ratio(info.get('netExpenseRatio'))
+        dividend_yield = normalize_ratio(info.get('dividendYield'))
 
         metrics = {
             'Ticker': info.get('symbol', ticker_symbol),
             'Name': info.get('shortName', 'N/A'),
-            'Category': info.get('category', 'N/A') if info.get('category') else info.get('quoteType', 'N/A'),
-            'Expense Ratio %': expense_pct,
-            'Yield %': yield_pct,
+            'Category': info.get('category', 'N/A'),
+            'Expense Ratio %': expense_ratio,
+            'Yield %': dividend_yield,
             'YTD Return %': info.get('ytdReturn'),
             '5Y CAGR %': (cagr_5y * 100) if cagr_5y is not None else np.nan,
             'Last Dividend': last_dividend,
