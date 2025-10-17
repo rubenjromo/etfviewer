@@ -13,7 +13,21 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- Initialize Session State ---
+# This ensures that variables persist across reruns (e.g., when a slider is moved)
+if 'analysis_run' not in st.session_state:
+    st.session_state.analysis_run = False
+    st.session_state.weighted_yield_decimal = 0.0
+    st.session_state.weighted_div_growth_decimal = 0.0
+    st.session_state.portfolio_value = 10000.0
+
 # --- Logic Functions ---
+
+def safe_to_percent(value):
+    """Safely converts a decimal value from yfinance to a percentage, returning np.nan for invalid data."""
+    if value is None or not isinstance(value, (int, float)):
+        return np.nan
+    return float(value) * 100.0
 
 def get_cagr(ticker, years=5):
     """Calculates the Compound Annual Growth Rate for a ticker's price."""
@@ -53,24 +67,6 @@ def get_dividend_frequency(dividends):
     except Exception:
         return "N/A"
 
-def _percent_from_maybe_decimal(value):
-    """
-    Convert a numeric value that may be a decimal fraction (0.03) or a percent (3)
-    into a percent number (e.g. 3.0).
-    If value is None -> return 0.0
-    """
-    try:
-        if value is None:
-            return 0.0
-        v = float(value)
-        # if value is sensible fraction (<1 and >0) treat as decimal
-        if abs(v) < 1:
-            return v * 100.0
-        return v
-
-    except Exception:
-        return 0.0
-
 @st.cache_data(ttl=3600)
 def get_etf_metrics(ticker_symbol):
     """Fetches key comparable metrics for an ETF or asset with normalized values."""
@@ -78,50 +74,27 @@ def get_etf_metrics(ticker_symbol):
         etf_yf = yf.Ticker(ticker_symbol)
         info = etf_yf.info
         if not info:
-            # Handle crypto or non-ETF assets
             if '-' in ticker_symbol:
                 return {'Ticker': ticker_symbol, 'Name': ticker_symbol}
             st.warning(f"Could not get valid data for {ticker_symbol}.", icon="⚠️")
             return None
-
-        # Normalize numeric fields (sometimes given as 0.06 or 6.0)
-        def normalize_ratio(x):
-            """Normalize inconsistent ratio values from Yahoo Finance."""
-            if x is None or pd.isna(x):
-                return 0.0
-            try:
-                x = float(x)
-                # Handle Yahoo inconsistencies:
-                # If value < 0.05 → interpret as decimal (e.g., 0.02 = 2%)
-                # If value between 0.05 and 1.5 → likely already percentage (0.47 = 0.47%)
-                # If value > 1.5 and < 100 → already percent
-                if x < 0.05:
-                    return x * 100
-                elif 0.05 <= x < 1.5:
-                    return x
-                elif 1.5 <= x < 100:
-                    return x
-                else:
-                    return 0.0
-            except Exception:
-                return 0.0
-
 
         dividends = etf_yf.dividends
         last_dividend = dividends.iloc[-1] if not dividends.empty else 0
         dividend_frequency = get_dividend_frequency(dividends)
         cagr_5y = get_cagr(etf_yf, years=5)
 
-        expense_ratio = normalize_ratio(info.get('netExpenseRatio'))
-        dividend_yield = normalize_ratio(info.get('dividendYield'))
+        expense_ratio_raw = info.get('annualReportExpenseRatio', info.get('netExpenseRatio'))
+        dividend_yield_raw = info.get('yield', info.get('dividendYield'))
+        ytd_return_raw = info.get('ytdReturn')
 
         metrics = {
             'Ticker': info.get('symbol', ticker_symbol),
             'Name': info.get('shortName', 'N/A'),
             'Category': info.get('category', 'N/A'),
-            'Expense Ratio %': expense_ratio,
-            'Yield %': dividend_yield,
-            'YTD Return %': info.get('ytdReturn'),
+            'Expense Ratio %': safe_to_percent(expense_ratio_raw),
+            'Yield %': safe_to_percent(dividend_yield_raw),
+            'YTD Return %': safe_to_percent(ytd_return_raw),
             '5Y CAGR %': (cagr_5y * 100) if cagr_5y is not None else np.nan,
             'Last Dividend': last_dividend,
             'Price': info.get('regularMarketPrice'),
@@ -129,18 +102,16 @@ def get_etf_metrics(ticker_symbol):
         }
         return metrics
     except Exception:
-        # Gracefully handle assets with no ETF-specific data
         if '-' in ticker_symbol:
             return {'Ticker': ticker_symbol, 'Name': ticker_symbol}
         return None
-        
+
 @st.cache_data(ttl=3600)
 def get_historical_prices(tickers):
     """Fetches 5-year historical closing prices for a list of tickers."""
     try:
         if not tickers:
             return None
-        # threads=True for parallel fetch; cached so repeated runs are cheap
         data = yf.download(tickers, period="5y", auto_adjust=True, threads=True)['Close']
         if isinstance(data, pd.Series):
             data = data.to_frame(name=tickers[0])
@@ -156,7 +127,6 @@ def get_performance_stats(price_history):
     
     daily_returns = price_history.pct_change().dropna()
     volatility = daily_returns.std() * np.sqrt(252)
-    # If volatility is a Series (multiple tickers), compute per-column
     if isinstance(volatility, pd.Series):
         avg_daily_return = daily_returns.mean()
         sharpe_ratio = (avg_daily_return * 252 - 0.02) / volatility
@@ -177,117 +147,9 @@ def get_normalized_growth(price_history):
     """Converts a price history DataFrame to a normalized growth DataFrame."""
     if price_history is None or price_history.empty:
         return None
-    # Downsample weekly to improve plotting performance
     sampled = price_history.resample('W').last()
     normalized = (sampled / sampled.bfill().iloc[0] - 1) * 100
     return normalized.round(2)
-
-# --- ETF Holdings and Exposure Analysis ---
-
-@st.cache_data(ttl=3600)
-def get_etf_holdings(ticker_symbol):
-    """Get ETF holdings (if available)."""
-    try:
-        etf = yf.Ticker(ticker_symbol)
-        holdings = getattr(etf, "funds_holdings", None)
-        # Some yfinance versions expose as etf.funds_holdings, sometimes None
-        if holdings is None or (isinstance(holdings, (pd.DataFrame, pd.Series)) and getattr(holdings, "empty", True)):
-            return pd.DataFrame()
-        # Robust mapping for column names that may vary across versions
-        df = holdings.copy()
-        col_map = {}
-        if 'symbol' in df.columns:
-            col_map['symbol'] = 'Ticker'
-        elif 'holdingSymbol' in df.columns:
-            col_map['holdingSymbol'] = 'Ticker'
-        if 'holdingName' in df.columns:
-            col_map['holdingName'] = 'Company'
-        elif 'name' in df.columns:
-            col_map['name'] = 'Company'
-        if 'holdingPercent' in df.columns:
-            col_map['holdingPercent'] = 'Weight'
-        elif 'weight' in df.columns:
-            col_map['weight'] = 'Weight'
-        available = [c for c in col_map.keys() if c in df.columns]
-        if not available:
-            return pd.DataFrame()
-        df = df[available].rename(columns=col_map)
-        df['ETF'] = ticker_symbol
-        # Normalize weight to percent scale
-        if df['Weight'].max() <= 1:
-            df['Weight'] = df['Weight'] * 100
-        return df[['Ticker', 'Company', 'Weight', 'ETF']]
-    except Exception:
-        return pd.DataFrame()
-
-def combine_holdings(portfolio):
-    """Combine holdings from all ETFs weighted by portfolio allocation."""
-    combined = pd.DataFrame()
-    for etf, etf_weight in portfolio.items():
-        holdings = get_etf_holdings(etf)
-        if not holdings.empty:
-            h = holdings.copy()
-            h['AdjustedWeight'] = h['Weight'] * (etf_weight / 100.0)
-            combined = pd.concat([combined, h], ignore_index=True)
-    if combined.empty:
-        return pd.DataFrame()
-    final = combined.groupby(['Ticker', 'Company'], as_index=False)['AdjustedWeight'].sum()
-    final['AdjustedWeight'] = final['AdjustedWeight'].round(6)
-    final.sort_values('AdjustedWeight', ascending=False, inplace=True)
-    return final
-
-@st.cache_data(ttl=86400)
-def get_company_info(symbol):
-    """Get country and sector for a company via yfinance.info"""
-    try:
-        data = yf.Ticker(symbol).info or {}
-        return {
-            'Ticker': symbol,
-            'Country': data.get('country', 'Unknown'),
-            'Sector': data.get('sector', 'Unknown')
-        }
-    except Exception:
-        return {'Ticker': symbol, 'Country': 'Unknown', 'Sector': 'Unknown'}
-
-def enrich_holdings_with_info(df):
-    if df is None or df.empty:
-        return df
-    unique = df['Ticker'].unique().tolist()
-    info_list = [get_company_info(t) for t in unique]
-    info_df = pd.DataFrame(info_list)
-    df = df.merge(info_df, on='Ticker', how='left')
-    return df
-
-def plot_company_exposure(df):
-    fig = px.bar(df.head(15), x='Company', y='AdjustedWeight',
-                 title="Top 15 Holdings (Weighted by Portfolio)",
-                 labels={'AdjustedWeight': 'Portfolio Exposure (%)'})
-    fig.update_layout(xaxis_tickangle=-45, yaxis_title="Exposure (%)")
-    st.plotly_chart(fig, use_container_width=True)
-
-def plot_country_map(df):
-    df2 = df[df['Country'].notna() & (df['Country'] != 'Unknown')]
-    if df2.empty:
-        st.info("No country-level data available to build a map.")
-        return
-    country_weights = df2.groupby('Country', as_index=False)['AdjustedWeight'].sum()
-    fig = px.choropleth(country_weights, locations="Country",
-                        locationmode="country names",
-                        color="AdjustedWeight",
-                        title="Portfolio Exposure by Country",
-                        color_continuous_scale="Blues")
-    st.plotly_chart(fig, use_container_width=True)
-
-def plot_sector_pie(df):
-    sector_weights = df.groupby('Sector', as_index=False)['AdjustedWeight'].sum()
-    if sector_weights.empty:
-        st.info("No sector-level data available.")
-        return
-    fig = px.pie(sector_weights, values='AdjustedWeight', names='Sector',
-                 title='Portfolio Exposure by Sector', hole=0.3)
-    st.plotly_chart(fig, use_container_width=True)
-
-# --- Dividend Growth (DGI) helpers ---
 
 @st.cache_data(ttl=86400)
 def get_dividend_series(symbol):
@@ -319,29 +181,27 @@ def compute_dividend_cagr(div_series, years=5):
     return cagr
 
 @st.cache_data(ttl=86400)
-def get_dividend_metrics(symbol):
-    """Return useful dividend metrics for an asset."""
+def get_dividend_metrics_for_projection(symbol):
+    """Return only the yield and growth needed for the projection."""
     try:
         info = yf.Ticker(symbol).info or {}
-        raw_yield = info.get('dividendYield', None)
-        div_yield_pct = _percent_from_maybe_decimal(raw_yield)
-        raw_payout = info.get('payoutRatio', None)
-        payout_pct = _percent_from_maybe_decimal(raw_payout)
+        raw_yield = info.get('yield', info.get('dividendYield'))
+        div_yield_pct = safe_to_percent(raw_yield)
+        
         div_series = get_dividend_series(symbol)
         div_cagr = compute_dividend_cagr(div_series, years=5)
         div_cagr_pct = div_cagr * 100 if div_cagr is not None else np.nan
+        
         return {
             'Ticker': symbol,
             'Dividend Yield %': div_yield_pct,
-            'Payout Ratio %': payout_pct,
             '5Y Dividend CAGR %': div_cagr_pct
         }
     except Exception:
-        return {'Ticker': symbol, 'Dividend Yield %': np.nan, 'Payout Ratio %': np.nan, '5Y Dividend CAGR %': np.nan}
+        return {'Ticker': symbol, 'Dividend Yield %': np.nan, '5Y Dividend CAGR %': np.nan}
 
 def simulate_dividend_growth(initial_investment, annual_yield_decimal, dividend_growth_decimal, years):
-    """Simulate annual dividend income growth (not total portfolio growth).
-       annual_yield_decimal must be in decimal (e.g. 0.03 for 3%)."""
+    """Simulate annual dividend income growth."""
     rows = []
     income = initial_investment * annual_yield_decimal
     for year in range(1, years + 1):
@@ -357,7 +217,7 @@ col1, col2 = st.columns(2)
 with col1:
     portfolio_input = st.text_area(
         "**1. Enter your assets and weights** (one per line)",
-        value="VOO 40\nSCHD 20\nQQQ 20\nBTC-USD 20",
+        value="VOO 40\nSCHD 20\nQQQ 20\nCGDG 20",
         height=150, help="Use format 'TICKER WEIGHT'. The sum of weights should be 100."
     )
 with col2:
@@ -393,20 +253,39 @@ if st.button("Calculate & Analyze Portfolio"):
     if valid_input and portfolio:
         with st.spinner("Fetching data and calculating..."):
             all_metrics = []
-            weighted_yield_sum_pct = 0.0  # stored as percent (e.g. 3.5)
+            weighted_yield_sum_pct = 0.0
             weighted_expense_ratio_sum_pct = 0.0
             
-            # fetch metrics for each ticker (cached)
             for ticker, weight in portfolio.items():
                 metrics = get_etf_metrics(ticker)
                 if metrics:
                     metrics['Portfolio Weight %'] = weight
                     all_metrics.append(metrics)
-                    weighted_yield_sum_pct += (metrics.get('Yield %', 0) or 0.0) * (weight / 100.0)
-                    weighted_expense_ratio_sum_pct += (metrics.get('Expense Ratio %', 0) or 0.0) * (weight / 100.0)
+                    weighted_yield_sum_pct += np.nan_to_num(metrics.get('Yield %', 0)) * (weight / 100.0)
+                    weighted_expense_ratio_sum_pct += np.nan_to_num(metrics.get('Expense Ratio %', 0)) * (weight / 100.0)
             
-            # Get price_history only once for all tickers — cached
             price_history = get_historical_prices(list(portfolio.keys()))
+
+            # --- Calculate projection data and save to session state ---
+            div_metrics_proj = [get_dividend_metrics_for_projection(t) for t in portfolio.keys()]
+            div_df_proj = pd.DataFrame(div_metrics_proj).set_index('Ticker')
+
+            weighted_yield_decimal_proj = 0.0
+            weighted_div_growth_decimal_proj = 0.0
+            if not div_df_proj.empty:
+                for t, w in portfolio.items():
+                    if t in div_df_proj.index:
+                        y_pct = div_df_proj.loc[t]['Dividend Yield %']
+                        g_pct = div_df_proj.loc[t]['5Y Dividend CAGR %']
+                        if not pd.isna(y_pct):
+                            weighted_yield_decimal_proj += (y_pct / 100.0) * (w / 100.0)
+                        if not pd.isna(g_pct):
+                            weighted_div_growth_decimal_proj += (g_pct / 100.0) * (w / 100.0)
+            
+            st.session_state.analysis_run = True
+            st.session_state.weighted_yield_decimal = weighted_yield_decimal_proj
+            st.session_state.weighted_div_growth_decimal = weighted_div_growth_decimal_proj
+            st.session_state.portfolio_value = portfolio_value
 
         if all_metrics:
             st.success("Analysis complete!")
@@ -446,7 +325,6 @@ if st.button("Calculate & Analyze Portfolio"):
 
             st.markdown("---")
             st.subheader("Portfolio Summary")
-            # weighted_yield_sum_pct is percent (e.g. 3.5 for 3.5%)
             annual_income = portfolio_value * (weighted_yield_sum_pct / 100.0)
             
             col_metric1, col_metric2, col_metric3 = st.columns(3)
@@ -459,7 +337,7 @@ if st.button("Calculate & Analyze Portfolio"):
             
             st.markdown("---")
             st.subheader("Annual Dividend Income Contribution")
-            df_comp['Income Contribution ($)'] = (df_comp['Yield %'] / 100.0) * (df_comp['Portfolio Weight %'] / 100.0) * portfolio_value
+            df_comp['Income Contribution ($)'] = (np.nan_to_num(df_comp['Yield %']) / 100.0) * (df_comp['Portfolio Weight %'] / 100.0) * portfolio_value
             fig_pie = px.pie(
                 df_comp, values='Income Contribution ($)', names=df_comp.index,
                 title='Annual Dividend Projection by ETF', hole=.3
@@ -480,107 +358,34 @@ if st.button("Calculate & Analyze Portfolio"):
                 )
                 st.plotly_chart(fig_corr, use_container_width=True)
 
-            # --- NEW SECTION: ETF Holdings and Exposure ---
-            st.markdown("---")
-            st.subheader("🔍 ETF Holdings & Exposure Analysis")
+# --- This section is now outside the button logic and uses session_state ---
+if st.session_state.analysis_run:
+    st.markdown("---")
+    st.subheader("📈 Dividend Income Projection")
+    st.info("This simulation projects your **annual dividend income** over time based on the portfolio's weighted average yield and dividend growth rate. It does not account for price changes or reinvestment.", icon="💡")
 
-            # Lazy load: user chooses to fetch holdings / sectors
-            col_h1, col_h2 = st.columns([1, 2])
-            with col_h1:
-                fetch_holdings = st.checkbox("Fetch detailed holdings (may be slower)", value=False)
-            with col_h2:
-                fetch_sectors = st.checkbox("Show combined sector exposure", value=True)
+    initial = st.number_input(
+        "Portfolio value for projection ($)",
+        value=float(st.session_state.portfolio_value),
+        key='projection_value'
+    )
+    years = st.slider("Projection horizon (years)", 5, 40, 20, key='projection_years')
 
-            combined_holdings = pd.DataFrame()
-            if fetch_holdings:
-                combined_holdings = combine_holdings(portfolio)
-                if not combined_holdings.empty:
-                    enriched = enrich_holdings_with_info(combined_holdings)
-                    st.markdown("### 📊 Combined Top Holdings")
-                    enriched_display = enriched.copy()
-                    enriched_display['AdjustedWeight (%)'] = (enriched_display['AdjustedWeight'] ).round(4)
-                    st.dataframe(enriched_display.sort_values('AdjustedWeight', ascending=False).head(20), use_container_width=True)
-                    plot_company_exposure(enriched_display)
-                    plot_country_map(enriched_display)
-                else:
-                    st.warning("No holdings data available for the selected ETFs (via yfinance).")
+    if st.session_state.weighted_yield_decimal > 0:
+        proj_df = simulate_dividend_growth(
+            initial,
+            st.session_state.weighted_yield_decimal,
+            st.session_state.weighted_div_growth_decimal,
+            years
+        )
+        st.line_chart(proj_df.set_index('Year'))
+    else:
+        st.warning("No dividend data available in the portfolio to create a projection.")
 
-            # Sector exposure aggregated from ETF-level sector breakdown
-            if fetch_sectors:
-                sector_combined = pd.DataFrame()
-                for etf, w in portfolio.items():
-                    try:
-                        s = yf.Ticker(etf).fund_sector_weightings or {}
-                    except Exception:
-                        s = {}
-                    if s:
-                        df_s = pd.DataFrame(list(s.items()), columns=['Sector', 'Weight'])
-                        df_s['Weight'] = df_s['Weight'] * 100  # convert to percent
-                        df_s['AdjustedWeight'] = df_s['Weight'] * (w / 100.0)
-                        sector_combined = pd.concat([sector_combined, df_s[['Sector','AdjustedWeight']]], ignore_index=True)
-                if not sector_combined.empty:
-                    sector_final = sector_combined.groupby('Sector', as_index=False)['AdjustedWeight'].sum()
-                    sector_final.sort_values('AdjustedWeight', ascending=False, inplace=True)
-                    sector_final['AdjustedWeight (%)'] = sector_final['AdjustedWeight'].round(4)
-                    st.markdown("### 🏭 Combined Sector Exposure")
-                    st.dataframe(sector_final[['Sector','AdjustedWeight (%)']], use_container_width=True)
-                    plot_sector_pie(sector_final.rename(columns={'AdjustedWeight': 'AdjustedWeight'}))
-                else:
-                    st.warning("No sector weighting data available for the selected ETFs (via yfinance).")
+    st.info("""
+        **Disclaimer:** This tool is for informational purposes only and does not constitute financial advice. All calculations are based on publicly available data which may not be 100% accurate. Always do your own research before making any investment decisions.
+    """, icon="⚠️")
 
-            # --- Dividend Growth Features (optional) ---
-            st.markdown("---")
-            st.subheader("🧠 Dividend Growth (DGI) Analysis")
-            with st.expander("Show Dividend Growth metrics & projections"):
-                div_metrics = []
-                for t in portfolio.keys():
-                    dm = get_dividend_metrics(t)
-                    div_metrics.append(dm)
-                div_df = pd.DataFrame(div_metrics).set_index('Ticker')
-                if not div_df.empty:
-                    st.markdown("#### Dividend Metrics per Asset")
-                    st.dataframe(div_df.style.format({
-                        'Dividend Yield %': '{:.2f}%', 'Payout Ratio %': '{:.2f}%', '5Y Dividend CAGR %': '{:.2f}%'
-                    }, na_rep="N/A"), use_container_width=True)
-
-                    # Compute portfolio weighted metrics using decimals for simulation
-                    weighted_yield_decimal = 0.0  # decimal (e.g. 0.03)
-                    weighted_div_growth_decimal = 0.0
-                    for t, w in portfolio.items():
-                        if t in div_df.index:
-                            y_pct = div_df.loc[t]['Dividend Yield %']
-                            g_pct = div_df.loc[t]['5Y Dividend CAGR %']
-                            if not pd.isna(y_pct):
-                                weighted_yield_decimal += (y_pct / 100.0) * (w / 100.0)
-                            if not pd.isna(g_pct):
-                                weighted_div_growth_decimal += (g_pct / 100.0) * (w / 100.0)
-
-                    st.markdown("**Portfolio (weighted) dividend metrics**")
-                    st.metric("Weighted Avg Dividend Yield", f"{weighted_yield_decimal*100:.2f}%")
-                    st.metric("Weighted Avg Dividend Growth (5y)", f"{weighted_div_growth_decimal*100:.2f}%")
-
-                    # Projection simulator
-                    st.markdown("#### Dividend income projection (uses weighted portfolio yield & growth)")
-                    initial = st.number_input("Portfolio value for projection ($)", value=float(portfolio_value))
-                    years = st.slider("Projection horizon (years)", 5, 40, 20)
-                    proj_df = simulate_dividend_growth(initial, weighted_yield_decimal, weighted_div_growth_decimal, years)
-                    st.line_chart(proj_df.set_index('Year'))
-                else:
-                    st.info("No dividend metrics available for the selected tickers.")
-
-            # DGI philosophy (English)
-            with st.expander("📜 Dividend Growth Philosophy (quick)"):
-                st.markdown("""
-                - Focus on **growing income**, not just price appreciation.
-                - Reinvesting dividends (compounding) is the engine of long-term income growth.
-                - Prefer companies or ETFs with **reasonable payout ratios**, consistent dividend growth, and durable advantages.
-                - For ETFs, check that the fund's strategy aligns with income generation (e.g., dividend-focused funds).
-                - Discipline matters: selling in panic breaks compounding.
-                """)
-
-            st.info("""
-                **Disclaimer:** This tool is for informational purposes only and does not constitute financial advice. All calculations are based on publicly available data which may not be 100% accurate. Always do your own research before making any investment decisions.
-            """, icon="⚠️")
 
 # --- Sidebar ---
 st.sidebar.header("About")
