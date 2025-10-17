@@ -86,25 +86,25 @@ def get_etf_metrics(ticker_symbol):
 
         # Normalize numeric fields (sometimes given as 0.06 or 6.0)
         def normalize_ratio(x):
-    """Normalize inconsistent ratio values from Yahoo Finance."""
-    if x is None or pd.isna(x):
-        return 0.0
-    try:
-        x = float(x)
-        # Handle Yahoo inconsistencies:
-        # If value < 0.05 → interpret as decimal (e.g., 0.02 = 2%)
-        # If value between 0.05 and 1.5 → likely already percentage (0.47 = 0.47%)
-        # If value > 1.5 and < 100 → already percent
-        if x < 0.05:
-            return x * 100
-        elif 0.05 <= x < 1.5:
-            return x
-        elif 1.5 <= x < 100:
-            return x
-        else:
-            return 0.0
-    except Exception:
-        return 0.0
+            """Normalize inconsistent ratio values from Yahoo Finance."""
+            if x is None or pd.isna(x):
+                return 0.0
+            try:
+                x = float(x)
+                # Handle Yahoo inconsistencies:
+                # If value < 0.05 → interpret as decimal (e.g., 0.02 = 2%)
+                # If value between 0.05 and 1.5 → likely already percentage (0.47 = 0.47%)
+                # If value > 1.5 and < 100 → already percent
+                if x < 0.05:
+                    return x * 100
+                elif 0.05 <= x < 1.5:
+                    return x
+                elif 1.5 <= x < 100:
+                    return x
+                else:
+                    return 0.0
+            except Exception:
+                return 0.0
 
 
         dividends = etf_yf.dividends
@@ -133,7 +133,7 @@ def get_etf_metrics(ticker_symbol):
         if '-' in ticker_symbol:
             return {'Ticker': ticker_symbol, 'Name': ticker_symbol}
         return None
-
+        
 @st.cache_data(ttl=3600)
 def get_historical_prices(tickers):
     """Fetches 5-year historical closing prices for a list of tickers."""
