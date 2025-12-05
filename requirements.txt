@@ -1,8 +1,8 @@
 streamlit
-requests
 pandas
 numpy
-plotly
-beautifulsoup4
+requests
 yfinance
-lxml
+plotly
+pycountry
+matplotlib
