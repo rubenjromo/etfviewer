@@ -4,3 +4,9 @@ yfinance
 plotly
 matplotlib
 numpy
+requests
+pycountry
+math
+time
+json
+datetime
