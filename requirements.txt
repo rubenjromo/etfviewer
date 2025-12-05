@@ -10,3 +10,5 @@ math
 time
 json
 datetime
+beautifulsoup4
+lxml
