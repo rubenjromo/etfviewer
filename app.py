@@ -382,7 +382,7 @@ if st.button("Calcular"):
         # --------------------------
         # Projection (20 years)
         # --------------------------
-        st.markdown(Proyección a 20 años con reinversión de dividendos")
+        st.markdown("Proyección a 20 años con reinversión de dividendos")
 
         def simulate(initial, g, y, years):
             rows = []
