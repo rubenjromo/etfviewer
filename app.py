@@ -17,7 +17,7 @@ import time
 # Page config
 # --------------------------
 st.set_page_config(page_title="ETF Portfolio Analyzer", layout="wide", initial_sidebar_state="expanded")
-st.title("📈 ETF Portfolio Analyzer — Professional Version")
+st.title("ETF Portfolio Analyzer")
 
 # --------------------------
 # Sidebar - Inputs
@@ -25,7 +25,7 @@ st.title("📈 ETF Portfolio Analyzer — Professional Version")
 st.sidebar.header("1) Configura tu portafolio")
 
 st.sidebar.markdown("""
-Ingrese los ETFs y pesos en formato:
+Ingrese los ETFs y pesos:
 
 
 Los pesos pueden sumar 100 o cualquier número — se normaliza.
@@ -155,8 +155,8 @@ def load_etf_holdings(ticker):
 # --------------------------
 st.markdown("## 🔄 Ejecutar análisis")
 
-if st.button("Calcular & Actualizar"):
-    with st.spinner("Descargando información, por favor espere..."):
+if st.button("Calcular"):
+    with st.spinner("Cargando información..."):
         
         all_frames = []
         etf_metrics = []
@@ -287,16 +287,16 @@ if st.button("Calcular & Actualizar"):
         # --------------------------
         # Summary
         # --------------------------
-        st.markdown("### 📌 Portfolio Summary")
+        st.markdown("Portfolio Summary")
         c1,c2,c3 = st.columns(3)
-        c1.metric("Weighted Dividend Yield", f"{w_yield:.2f}%")
-        c2.metric("Weighted 5Y CAGR", f"{w_cagr:.2f}%")
+        c1.metric("Dividend Yield", f"{w_yield:.2f}%")
+        c2.metric("5Y CAGR", f"{w_cagr:.2f}%")
         c3.metric("Annual Dividend Income", f"${annual_income:,.2f}")
 
         # --------------------------
         # ETF Metrics
         # --------------------------
-        st.markdown("### 📌 ETF Metrics (per ETF)")
+        st.markdown("ETF Metrics (per ETF)")
         df_disp = etf_metrics_df.reset_index()[["Ticker","Name","Price","Yield %","5Y CAGR %"]]
         df_disp["Yield %"] = df_disp["Yield %"].map(lambda x: f"{x:.2f}%")
         df_disp["5Y CAGR %"] = df_disp["5Y CAGR %"].map(lambda x: f"{x:.2f}%")
@@ -306,7 +306,7 @@ if st.button("Calcular & Actualizar"):
         # --------------------------
         # Holdings
         # --------------------------
-        st.markdown("### 📌 Top Holdings (Top 100)")
+        st.markdown("Top Holdings (Top 100)")
         hd = company_agg.head(100)[["name","weighted_percent","count_etfs"]]
         hd["weighted_percent"] = hd["weighted_percent"].map(lambda x: f"{x:.2f}%")
         st.dataframe(hd, use_container_width=True)
@@ -314,7 +314,7 @@ if st.button("Calcular & Actualizar"):
         # --------------------------
         # Country exposures
         # --------------------------
-        st.markdown("### 🌍 Exposición por País")
+        st.markdown("Exposición por País")
         cdf = country_agg.copy()
         cdf["weighted_percent"] = cdf["weighted_percent"].map(lambda x: f"{x:.2f}%")
         st.dataframe(cdf, use_container_width=True)
@@ -322,7 +322,7 @@ if st.button("Calcular & Actualizar"):
         # --------------------------
         # Region exposure bar
         # --------------------------
-        st.markdown("### 🗺️ Exposición por Continente")
+        st.markdown("Exposición por Continente")
         desired_order = ["USA","Canada","Europa","ASIA","Resto de América","África","Oceanía","Otros"]
         plot_df = region_agg.set_index("region_group").reindex(desired_order).fillna(0).reset_index()
         fig_region = px.bar(plot_df, x="region_group", y="weighted_percent",
@@ -334,7 +334,7 @@ if st.button("Calcular & Actualizar"):
         # --------------------------
         # Pie chart Holdings
         # --------------------------
-        st.markdown("### 🥧 Top 10 Holdings + Others")
+        st.markdown("Top 10 Holdings + Others")
         top10 = company_agg.head(10)
         others = company_agg["weighted_percent"].iloc[10:].sum()
         labels = list(top10["name"]) + ["Otros"]
@@ -345,7 +345,7 @@ if st.button("Calcular & Actualizar"):
         # --------------------------
         # Pie: Income by ETF
         # --------------------------
-        st.markdown("### 💵 Income Contribution (by ETF)")
+        st.markdown("Distribución de dividendos por ETF")
         eif = etf_metrics_df.reset_index()
         eif["Income"] = portfolio_value * (eif["Yield %"]/100) * eif["ETF Weight (frac)"]
         fig_inc = px.pie(eif, names="Ticker", values="Income", hole=0.3)
@@ -354,7 +354,7 @@ if st.button("Calcular & Actualizar"):
         # --------------------------
         # Price History & Growth
         # --------------------------
-        st.markdown("### 📈 5-Year Cumulative Growth")
+        st.markdown("5-Year Cumulative Growth")
         tickers_list = list(portfolio.keys())
         price_df = yf.download(tickers_list, period="5y", auto_adjust=True, threads=True)["Close"]
         price_df = price_df.dropna(how="all").ffill().bfill()
@@ -365,7 +365,7 @@ if st.button("Calcular & Actualizar"):
         # --------------------------
         # CORRELATION HEATMAP
         # --------------------------
-        st.markdown("### 🔗 Correlation Heatmap")
+        st.markdown("Correlation Heatmap")
         returns = price_df.pct_change().dropna()
         corr = returns.corr()
         fig_corr = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdYlGn")
@@ -374,7 +374,7 @@ if st.button("Calcular & Actualizar"):
         # --------------------------
         # Rolling Volatility
         # --------------------------
-        st.markdown("### 📉 Rolling Annualized Volatility (252d)")
+        st.markdown("Volatilidad Anualizada (252d)")
         rolling = returns.rolling(252).std() * np.sqrt(252)
         fig_vol = px.line(rolling)
         st.plotly_chart(fig_vol, use_container_width=True)
@@ -382,7 +382,7 @@ if st.button("Calcular & Actualizar"):
         # --------------------------
         # Projection (20 years)
         # --------------------------
-        st.markdown("### 🔮 20-Year Projection with Dividend Reinvestment")
+        st.markdown(Proyección a 20 años con reinversión de dividendos")
 
         def simulate(initial, g, y, years):
             rows = []
