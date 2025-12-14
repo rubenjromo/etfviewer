@@ -1,8 +1,7 @@
 streamlit
 pandas
-numpy
-requests
-yfinance
-plotly
-pycountry
 matplotlib
+seaborn
+numpy
+statsmodels
+tabulate
