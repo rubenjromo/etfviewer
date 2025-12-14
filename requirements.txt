@@ -1,7 +1,10 @@
 streamlit
+requests
+plotly
+beautifulsoup4
+pycountry
 pandas
 matplotlib
 seaborn
 numpy
 statsmodels
-tabulate
