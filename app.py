@@ -27,7 +27,7 @@ st.sidebar.header("1) Configura tu portafolio")
 st.sidebar.markdown("""
 Ingrese los ETFs y pesos:
 
-Los pesos pueden sumar 100 o cualquier número — se normaliza.
+Los pesos deben sumar 100 (porcentaje).
 """)
 
 default_text = "SCHD: 25\nVOO: 75"
@@ -154,7 +154,7 @@ def load_etf_holdings(ticker):
 # --------------------------
 # Main Button
 # --------------------------
-st.markdown("## 🔄 Ejecutar análisis")
+st.markdown("## Ejecutar análisis")
 
 if st.button("Calcular"):
     with st.spinner("Cargando información..."):
@@ -288,7 +288,7 @@ if st.button("Calcular"):
         # --------------------------
         # Summary
         # --------------------------
-        st.markdown("## 📈 Resumen del Portafolio")
+        st.markdown("## Resumen del Portafolio")
         c1,c2,c3 = st.columns(3)
         c1.metric("Dividend Yield", f"{w_yield:.2f}%")
         c2.metric("5Y CAGR", f"{w_cagr:.2f}%")
