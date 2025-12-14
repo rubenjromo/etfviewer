@@ -1,10 +1,8 @@
 streamlit
-requests
-plotly
-beautifulsoup4
-pycountry
 pandas
-matplotlib
-seaborn
 numpy
-statsmodels
+requests
+yfinance
+plotly
+pycountry
+matplotlib
